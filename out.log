@@ -1,0 +1,164 @@
+/u/anasynth/laffitte/.local/lib/python2.7/site-packages/h5py/__init__.py:36: FutureWarning: Conversion of the second argument of issubdtype from `float` to `np.floating` is deprecated. In future, it will be treated as `np.float64 == np.dtype(float).type`.
+  from ._conv import register_converters as _register_converters
+Using TensorFlow backend.
+2018-03-13 12:36:37.304326: I tensorflow/core/platform/cpu_feature_guard.cc:137] Your CPU supports instructions that this TensorFlow binary was not compiled to use: SSE4.1 SSE4.2 AVX AVX2 FMA
+2018-03-13 12:36:37.498685: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1030] Found device 0 with properties: 
+name: GeForce GTX 1080 major: 6 minor: 1 memoryClockRate(GHz): 1.7715
+pciBusID: 0000:02:00.0
+totalMemory: 7.92GiB freeMemory: 7.36GiB
+2018-03-13 12:36:37.498714: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1120] Creating TensorFlow device (/device:GPU:0) -> (device: 0, name: GeForce GTX 1080, pci bus id: 0000:02:00.0, compute capability: 6.1)
+/u/anasynth/laffitte/Code/medleydb/medleydb/__init__.py:28: UserWarning: The environment variable MEDLEYDB_PATH is not set. As a result, any part of the code that requires the audio won't work. If you don't need to access the audio, disregard this warning. If you do, set the environment variable MEDLEYDB_PATH to your local copy of MedleyDB.
+  UserWarning
+sh: 1: sox: not found
+2018-03-13 12:36:40.746654: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1120] Creating TensorFlow device (/device:GPU:0) -> (device: 0, name: GeForce GTX 1080, pci bus id: 0000:02:00.0, compute capability: 6.1)
+/data/Experiments/SOFTMAX/features /data/Experiments/SOFTMAX/targets
+--->>> 2018-03-13 12:36:43.188024 Formatting Training Dataset
+--->>> 2018-03-13 12:36:43.188229 
+--->>> 2018-03-13 12:36:43.188241 ---> Testing Model <---
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #   
+=================================================================
+time_distributed_1 (TimeDist (None, 512, 72, 10, 128)  19328     
+_________________________________________________________________
+time_distributed_2 (TimeDist (None, 512, 72, 10, 128)  512       
+_________________________________________________________________
+time_distributed_3 (TimeDist (None, 512, 72, 10, 64)   204864    
+_________________________________________________________________
+time_distributed_4 (TimeDist (None, 512, 72, 10, 64)   256       
+_________________________________________________________________
+time_distributed_5 (TimeDist (None, 512, 72, 10, 64)   36928     
+_________________________________________________________________
+time_distributed_6 (TimeDist (None, 512, 72, 10, 64)   256       
+_________________________________________________________________
+time_distributed_7 (TimeDist (None, 512, 72, 10, 8)    107528    
+_________________________________________________________________
+time_distributed_8 (TimeDist (None, 512, 72, 10, 8)    32        
+_________________________________________________________________
+time_distributed_9 (TimeDist (None, 512, 72, 10, 1)    9         
+_________________________________________________________________
+time_distributed_10 (TimeDis (None, 512, 72, 10, 1)    4         
+_________________________________________________________________
+time_distributed_11 (TimeDis (None, 512, 72, 10)       0         
+_________________________________________________________________
+time_distributed_12 (TimeDis (None, 512, 720)          0         
+_________________________________________________________________
+time_distributed_13 (TimeDis (None, 512, 73)           52633     
+_________________________________________________________________
+lstm_1 (LSTM)                (None, 512, 73)           42924     
+_________________________________________________________________
+time_distributed_14 (TimeDis (None, 512, 73)           5402      
+_________________________________________________________________
+activation_1 (Activation)    (None, 512, 73)           0         
+=================================================================
+Total params: 470,676
+Trainable params: 470,146
+Non-trainable params: 530
+_________________________________________________________________
+None
+predicting on:['AClassicEducation_NightOwl']
+Size of song in blocks/samples:28/14336
+predicting on:['Auctioneer_OurFutureFaces']
+Size of song in blocks/samples:34/17408
+predicting on:['CelestialShore_DieForUs']
+Size of song in blocks/samples:46/23552
+predicting on:['ChrisJacoby_BoothShotLincoln']
+Size of song in blocks/samples:42/21504
+predicting on:['ChrisJacoby_PigsFoot']
+Size of song in blocks/samples:61/31232
+predicting on:['Creepoid_OldTree']
+Size of song in blocks/samples:50/25600
+predicting on:['Debussy_LenfantProdigue']
+Size of song in blocks/samples:37/18944
+predicting on:['MatthewEntwistle_DontYouEver']
+Size of song in blocks/samples:19/9728
+predicting on:['MatthewEntwistle_FairerHopes']
+Size of song in blocks/samples:50/25600
+predicting on:['MatthewEntwistle_ImpressionsOfSaturn']
+Size of song in blocks/samples:61/31232
+predicting on:['MatthewEntwistle_Lontano']
+Size of song in blocks/samples:50/25600
+predicting on:['MatthewEntwistle_TheArch']
+Size of song in blocks/samples:44/22528
+predicting on:['MatthewEntwistle_TheFlaxenField']
+Size of song in blocks/samples:54/27648
+predicting on:['Mozart_DiesBildnis']
+Size of song in blocks/samples:38/19456
+predicting on:['MusicDelta_FusionJazz']
+Size of song in blocks/samples:18/9216
+predicting on:['MusicDelta_Gospel']
+Size of song in blocks/samples:12/6144
+predicting on:['MusicDelta_Pachelbel']
+Size of song in blocks/samples:50/25600
+predictin/net/inavouable/u.anasynth/laffitte/Code/CNNforMelodyExtraction/plotFunction.py:16: FutureWarning: from_csv is deprecated. Please use read_csv(...) instead. Note that some of the default arguments are different, so please refer to the documentation for from_csv when changing your function calls
+  df_piero = pd.DataFrame.from_csv(os.path.join(path, "_all_scores.csv"))
+g on:['MusicDelta_SwingJazz']
+Size of song in blocks/samples:15/7680
+predicting on:['Phoenix_BrokenPledgeChicagoReel']
+Size of song in blocks/samples:30/15360
+predicting on:['Phoenix_ColliersDaughter']
+Size of song in blocks/samples:32/16384
+predicting on:['Phoenix_ElzicsFarewell']
+Size of song in blocks/samples:29/14848
+predicting on:['Phoenix_LarkOnTheStrandDrummondCastle']
+Size of song in blocks/samples:38/19456
+predicting on:['Phoenix_ScotchMorris']
+Size of song in blocks/samples:29/14848
+predicting on:['Phoenix_SeanCaughlinsTheScartaglen']
+Size of song in blocks/samples:32/16384
+predicting on:['PortStWillow_StayEven']
+Size of song in blocks/samples:53/27136
+predicting on:['Schubert_Erstarrung']
+Size of song in blocks/samples:29/14848
+(14336, 72)
+(14336, 72)
+(17408, 72)
+(17408, 72)
+(23552, 72)
+(23552, 72)
+(21504, 72)
+(21504, 72)
+(31232, 72)
+(31232, 72)
+(25600, 72)
+(25600, 72)
+(18944, 72)
+(18944, 72)
+(9728, 72)
+(9728, 72)
+(25600, 72)
+(25600, 72)
+(31232, 72)
+(31232, 72)
+(25600, 72)
+(25600, 72)
+(22528, 72)
+(22528, 72)
+(27648, 72)
+(27648, 72)
+(19456, 72)
+(19456, 72)
+(9216, 72)
+(9216, 72)
+(6144, 72)
+(6144, 72)
+(25600, 72)
+(25600, 72)
+(7680, 72)
+(7680, 72)
+(15360, 72)
+(15360, 72)
+(16384, 72)
+(16384, 72)
+(14848, 72)
+(14848, 72)
+(19456, 72)
+(19456, 72)
+(14848, 72)
+(14848, 72)
+(16384, 72)
+(16384, 72)
+(27136, 72)
+(27136, 72)
+(14848, 72)
+(14848, 72)
+{'Voicing Recall': 1.0, 'Raw Chroma Accuracy': 0.08613072848978592, 'Overall Accuracy': 0.01536260309113498, 'Raw Pitch Accuracy': 0.03683669279792563, 'Voicing False Alarm': 1.0}
