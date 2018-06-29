@@ -174,6 +174,22 @@ class DataSet(object):
         #     print song, songDic[song]
         return longest, name
 
+    def bucketDataset(self, dataset, size):
+        sortedList = []
+        sortedLength = {}
+        bucketList = []
+        dataList = dataset[:]
+        for k in range(len(dataset)):
+            L, longest = self.findLongest(dataList)
+            if L != 0:
+                sortedList.append(longest)
+                sortedLength[longest] = L
+                dataList.remove(longest)
+        for k in range(int(np.floor(len(dataset)/size))):
+            bucketList.append([])
+            bucketList[-1].append(sortedList[k*size: k*size+size])
+        return bucketList
+
     ### ---------------- RETURN A GENERATOR FO60R DATA AND LABELS ---------------- ###
     def formatDataset(self, dataset, timeDepth, targetDim, batchSize, hopSize, fftSize, nHarmonics, voicing=False, binary=False):
         while 1:
@@ -243,70 +259,50 @@ class DataSet(object):
 
     def formatDatasetStatefull(self, dataset, timeDepth, targetDim, batchSize, hopSize, fftSize, nHarmonics, voicing=False, binary=False, rnnBatch=16):
         _, nSequences, _ = self.sizeDataset(dataset, timeDepth, batchSize, hopSize, fftSize, nHarmonics, targetDim, rnnBatch, True)
-#########################################################################################################
-##########################################################################################################
-##########################################################################################################
-########--------->>>>> TRYING TO USE FIT GENERATOR METHOD <<<<<<--------------------------------------
-        bucketList = bucketDataset(dataset, rnnBatch, dataobj)
-        for (s, subTracks) in enumerate(bucketList):
-            log("Training on subset {}".format(s))
-            myModel.reset_states()
-            _, subSteps, nSongsSubset = dataobj.sizeDataset(subTracks[0], timeDepth, batchSize, hopSize, fftSize, nHarmonics, modelDim, rnnBatch, stateFull)
-            if "SOFTMAX" in targetDim or "CATEGORICAL" in targetDim:
-                binary = True
-                voicing = True
-            self.mtracks = mdb.load_all_multitracks(dataset_version = 'V1')
-            tracks = [tr.track_id for tr in self.mtracks if tr.track_id in self.trackList]
-            tracks = [tr for tr in tracks if tr in dataset]
-            # get size of longest track and set it as number of nBatches
-            if voicing:
-                nOuts = fftSize+1
-            else:
-                nOuts = fftSize
-            offset = 0
-            for b in range(nSequences): # Iterate over total number of batches and fill them up 1-b-1
-                if "BASELINE" in targetDim:
-                    # inputs = np.zeros((rnnBatch, fftSize, batchSize, nHarmonics))
-                    inputs = np.zeros((rnnBatch, batchSize, fftSize))
+        while 1:
+            bucketList = self.bucketDataset(dataset, rnnBatch)
+            for (s, subTracks) in enumerate(bucketList):
+            #     # myModel.reset_states()
+                if "SOFTMAX" in targetDim or "CATEGORICAL" in targetDim:
+                    binary = True
+                    voicing = True
+                self.mtracks = mdb.load_all_multitracks(dataset_version = 'V1')
+                tracks = [tr.track_id for tr in self.mtracks if tr.track_id in self.trackList]
+                tracks = [tr for tr in tracks if tr in subTracks[0]]
+                # get size of longest track and set it as number of nBatches
+                if voicing:
+                    nOuts = fftSize+1
                 else:
-                    inputs = np.zeros((rnnBatch, batchSize, fftSize, timeDepth, nHarmonics))
-                if "1D" in targetDim or "SOFTMAX" in targetDim or "BASELINE" in targetDim:
-                    targets = np.zeros((rnnBatch, batchSize, nOuts))
-                elif "2D" in targetDim:
-                    targets = np.zeros((rnnBatch, batchSize, nOuts, timeDepth))
-                elif "MULTILABEL" in targetDim:
-                    targetNote = np.zeros((rnnBatch, batchSize, binsPerOctave, timeDepth))
-                    targetOctave = np.zeros((rnnBatch, batchSize, nOctave, timeDepth))
-                for (k, track) in enumerate(tracks):
-                    i = glob.glob(os.path.join(self.inputPath, '{}_mel1_input.npy'.format(track)))
-                    j = glob.glob(os.path.join(self.targetPath, '{}_mel1_output.npy'.format(track)))
-                    if i and j:
-                        curInput = np.load(i[0])
-                        curTarget = np.load(j[0])
-                        curInput = zero_pad(curInput, True, timeDepth)
-                        if "1D" in targetDim or "CATEGORICAL" in targetDim:
-                            if offset+batchSize+timeDepth < curInput.shape[-1]:
-                                for kk in range(0, batchSize, hopSize):
-                                    if len(curInput.shape) == 2:
-                                        temp = curInput[None, :, offset+kk:offset+kk+timeDepth]
-                                    else:
-                                        temp = curInput[:,:,offset+kk:offset+kk+timeDepth]
-                                    inputs[k,kk] = temp.transpose(1,2,0)
-                                tar = curTarget[:,offset:offset+batchSize].transpose(1,0)
-                            if voicing:
-                                if len(tar.shape)<2:
-                                    targets[k,:] = computeVoicing(tar)
-                                else:
-                                    targets[k,:] = np.zeros((batchSize, tar.shape[1]+1))
-                                    for m in range(tar.shape[0]):
-                                        targets[k,m] = computeVoicing(tar[m, :])
-                            else:
-                                targets[k,:] = tar
-                        elif "BASELINE" in targetDim or "2D" in targetDim:
-                            if offset+batchSize < curTarget.shape[-1]:
-                                temp = curInput[:,offset:offset+batchSize]
-                                inputs[k,:,:] = temp.transpose(1,0)
-                                tar = curTarget[:,offset:offset+batchSize].transpose(1,0)
+                    nOuts = fftSize
+                offset = 0
+                for b in range(nSequences): # Iterate over total number of batches and fill them up 1-b-1
+                    if "BASELINE" in targetDim:
+                        inputs = np.zeros((rnnBatch, batchSize, fftSize))
+                    else:
+                        inputs = np.zeros((rnnBatch, batchSize, fftSize, timeDepth, nHarmonics))
+                    if "1D" in targetDim or "SOFTMAX" in targetDim or "BASELINE" in targetDim:
+                        targets = np.zeros((rnnBatch, batchSize, nOuts))
+                    elif "2D" in targetDim:
+                        targets = np.zeros((rnnBatch, batchSize, nOuts, timeDepth))
+                    elif "MULTILABEL" in targetDim:
+                        targetNote = np.zeros((rnnBatch, batchSize, binsPerOctave, timeDepth))
+                        targetOctave = np.zeros((rnnBatch, batchSize, nOctave, timeDepth))
+                    for (k, track) in enumerate(tracks):
+                        i = glob.glob(os.path.join(self.inputPath, '{}_mel1_input.npy'.format(track)))
+                        j = glob.glob(os.path.join(self.targetPath, '{}_mel1_output.npy'.format(track)))
+                        if i and j:
+                            curInput = np.load(i[0])
+                            curTarget = np.load(j[0])
+                            curInput = zero_pad(curInput, True, timeDepth)
+                            if "1D" in targetDim or "CATEGORICAL" in targetDim:
+                                if offset+batchSize+timeDepth < curInput.shape[-1]:
+                                    for kk in range(0, batchSize, hopSize):
+                                        if len(curInput.shape) == 2:
+                                            temp = curInput[None, :, offset+kk:offset+kk+timeDepth]
+                                        else:
+                                            temp = curInput[:,:,offset+kk:offset+kk+timeDepth]
+                                        inputs[k,kk] = temp.transpose(1,2,0)
+                                    tar = curTarget[:,offset:offset+batchSize].transpose(1,0)
                                 if voicing:
                                     if len(tar.shape)<2:
                                         targets[k,:] = computeVoicing(tar)
@@ -316,92 +312,26 @@ class DataSet(object):
                                             targets[k,m] = computeVoicing(tar[m, :])
                                 else:
                                     targets[k,:] = tar
-                offset += batchSize
-                # if "BASELINE" in targetDim:
-                #     inputs = self.deepModel.predict(inputs).transpose(0,2,1)
-                if "MULTILABEL" in targetDim:
-                    targetNote, targetOctave = splitTarget(targets)
-                    yield inputs, [targetNote, targetOctave], False
-                else:
-                    yield inputs, targets, False
-
-##########################################################################################################
-##########################################################################################################
-##########################################################################################################
-
-        while 1:
-            # if "SOFTMAX" in targetDim or "CATEGORICAL" in targetDim:
-            #     binary = True
-            #     voicing = True
-            # self.mtracks = mdb.load_all_multitracks(dataset_version = 'V1')
-            # tracks = [tr.track_id for tr in self.mtracks if tr.track_id in self.trackList]
-            # tracks = [tr for tr in tracks if tr in dataset]
-            # # get size of longest track and set it as number of nBatches
-            # if voicing:
-            #     nOuts = fftSize+1
-            # else:
-            #     nOuts = fftSize
-            # offset = 0
-            # for b in range(nSequences): # Iterate over total number of batches and fill them up 1-b-1
-            #     if "BASELINE" in targetDim:
-            #         # inputs = np.zeros((rnnBatch, fftSize, batchSize, nHarmonics))
-            #         inputs = np.zeros((rnnBatch, batchSize, fftSize))
-            #     else:
-            #         inputs = np.zeros((rnnBatch, batchSize, fftSize, timeDepth, nHarmonics))
-            #     if "1D" in targetDim or "SOFTMAX" in targetDim or "BASELINE" in targetDim:
-            #         targets = np.zeros((rnnBatch, batchSize, nOuts))
-            #     elif "2D" in targetDim:
-            #         targets = np.zeros((rnnBatch, batchSize, nOuts, timeDepth))
-            #     elif "MULTILABEL" in targetDim:
-            #         targetNote = np.zeros((rnnBatch, batchSize, binsPerOctave, timeDepth))
-            #         targetOctave = np.zeros((rnnBatch, batchSize, nOctave, timeDepth))
-            #     for (k, track) in enumerate(tracks):
-            #         i = glob.glob(os.path.join(self.inputPath, '{}_mel1_input.npy'.format(track)))
-            #         j = glob.glob(os.path.join(self.targetPath, '{}_mel1_output.npy'.format(track)))
-            #         if i and j:
-            #             curInput = np.load(i[0])
-            #             curTarget = np.load(j[0])
-            #             curInput = zero_pad(curInput, True, timeDepth)
-            #             if "1D" in targetDim or "CATEGORICAL" in targetDim:
-            #                 if offset+batchSize+timeDepth < curInput.shape[-1]:
-            #                     for kk in range(0, batchSize, hopSize):
-            #                         if len(curInput.shape) == 2:
-            #                             temp = curInput[None, :, offset+kk:offset+kk+timeDepth]
-            #                         else:
-            #                             temp = curInput[:,:,offset+kk:offset+kk+timeDepth]
-            #                         inputs[k,kk] = temp.transpose(1,2,0)
-            #                     tar = curTarget[:,offset:offset+batchSize].transpose(1,0)
-            #                 if voicing:
-            #                     if len(tar.shape)<2:
-            #                         targets[k,:] = computeVoicing(tar)
-            #                     else:
-            #                         targets[k,:] = np.zeros((batchSize, tar.shape[1]+1))
-            #                         for m in range(tar.shape[0]):
-            #                             targets[k,m] = computeVoicing(tar[m, :])
-            #                 else:
-            #                     targets[k,:] = tar
-            #             elif "BASELINE" in targetDim or "2D" in targetDim:
-            #                 if offset+batchSize < curTarget.shape[-1]:
-            #                     temp = curInput[:,offset:offset+batchSize]
-            #                     inputs[k,:,:] = temp.transpose(1,0)
-            #                     tar = curTarget[:,offset:offset+batchSize].transpose(1,0)
-            #                     if voicing:
-            #                         if len(tar.shape)<2:
-            #                             targets[k,:] = computeVoicing(tar)
-            #                         else:
-            #                             targets[k,:] = np.zeros((batchSize, tar.shape[1]+1))
-            #                             for m in range(tar.shape[0]):
-            #                                 targets[k,m] = computeVoicing(tar[m, :])
-            #                     else:
-            #                         targets[k,:] = tar
-            #     offset += batchSize
-            #     # if "BASELINE" in targetDim:
-            #     #     inputs = self.deepModel.predict(inputs).transpose(0,2,1)
-            #     if "MULTILABEL" in targetDim:
-            #         targetNote, targetOctave = splitTarget(targets)
-            #         yield inputs, [targetNote, targetOctave], False
-            #     else:
-            #         yield inputs, targets, False
+                            elif "BASELINE" in targetDim or "2D" in targetDim:
+                                if offset+batchSize < curTarget.shape[-1]:
+                                    temp = curInput[:,offset:offset+batchSize]
+                                    inputs[k,:,:] = temp.transpose(1,0)
+                                    tar = curTarget[:,offset:offset+batchSize].transpose(1,0)
+                                    if voicing:
+                                        if len(tar.shape)<2:
+                                            targets[k,:] = computeVoicing(tar)
+                                        else:
+                                            targets[k,:] = np.zeros((batchSize, tar.shape[1]+1))
+                                            for m in range(tar.shape[0]):
+                                                targets[k,m] = computeVoicing(tar[m, :])
+                                    else:
+                                        targets[k,:] = tar
+                    offset += batchSize
+                    if "MULTILABEL" in targetDim:
+                        targetNote, targetOctave = splitTarget(targets)
+                        yield inputs, [targetNote, targetOctave]
+                    else:
+                        yield inputs, targets
 
 def createAnnotation(time_grid, freq_grid, time, freq):
 
