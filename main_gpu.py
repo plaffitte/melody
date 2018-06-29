@@ -32,7 +32,7 @@ import medleydb as mdb
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 from evaluation import calculate_metrics, arrangePredictions, writeScores
-from modelLearning import trainModel, trainStatefull, test, testCNN, testDeepSalience, testStatefull
+from modelLearning import trainModel, test, testCNN, testDeepSalience, testStatefull
 import mir_eval
 from plotFunction import plot
 import csv
@@ -179,13 +179,9 @@ if __name__ == "__main__":
 
     ### TRAIN MODEL ###
     if train:
-        if stateFull:
-            myModel, modelSplit = trainStatefull(
-            params, dataset, trainSet, validSet, modelDim, outPath, voicing, fftSize, seqNumber)
-        else:
-            myModel, modelSplit = trainModel(
-            params, dataset, trainSet, validSet, modelDim, outPath, voicing, fftSize
-            )
+        myModel, modelSplit = trainModel(
+        params, dataset, trainSet, validSet, modelDim, outPath, voicing, fftSize, seqNumber
+        )
     if trainRNNonly:
         myModel, modelSplit = trainRnnFromCnn(
         convModel, params, dataset, trainSet, validSet, modelDim, outPath, voicing, fftSize

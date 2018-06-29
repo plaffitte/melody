@@ -126,10 +126,6 @@ class DataSet(object):
                 i = glob.glob(os.path.join(self.inputPath, '{}_mel1_input.npy'.format(track)))
                 if i:
                     curInput = np.load(i[0])
-                    # if curInput.shape[-1] >= (longest - 100):
-                    #     dataset.remove(track)
-                    #     print "removing long track:", track
-                    # else:
                     nSamples += curInput.shape[-1]
             longest, _ = self.findLongest(dataset)
             nBlocks = int(np.floor(longest / batchSize))
@@ -169,9 +165,6 @@ class DataSet(object):
                     longest = curTarget.shape[-1]
                     name = track
                 songDic[track] = curTarget.shape[-1]
-        # sortedDic = sorted(songDic, key=songDic.get)
-        # for song in sortedDic:
-        #     print song, songDic[song]
         return longest, name
 
     def bucketDataset(self, dataset, size):
@@ -190,79 +183,79 @@ class DataSet(object):
             bucketList[-1].append(sortedList[k*size: k*size+size])
         return bucketList
 
-    ### ---------------- RETURN A GENERATOR FO60R DATA AND LABELS ---------------- ###
-    def formatDataset(self, dataset, timeDepth, targetDim, batchSize, hopSize, fftSize, nHarmonics, voicing=False, binary=False):
-        while 1:
-            if "SOFTMAX" in targetDim or "VOICING" in targetDim:
-                binary = True
-                voicing = True
-            self.mtracks = mdb.load_all_multitracks(dataset_version = 'V1')
-            tracks = [tr.track_id for tr in self.mtracks if tr.track_id in self.trackList]
-            tracks = [tr for tr in tracks if tr in dataset]
-            for track in tracks:
-                i = glob.glob(os.path.join(self.inputPath, '{}_mel1_input.npy'.format(track)))
-                j = glob.glob(os.path.join(self.targetPath, '{}_mel1_output.npy'.format(track)))
-                if i and j:
-                    curInput = np.load(i[0])
-                    curTarget = np.load(j[0])
-                    if targetDim=="1D" or "SOFTMAX" in targetDim:
-                        curInput = zero_pad(curInput, True, timeDepth)
-                    L = batchSize * hopSize
-                    nRounds = int(np.round((curTarget.shape[-1] - timeDepth) / L) + 1)
-                    for l in range(nRounds):
-                        if "2D" in targetDim or "rachel" in targetDim:
-                            inputs = np.zeros((batchSize, fftSize, timeDepth, nHarmonics))
-                        else:
-                            inputs = np.zeros((batchSize, fftSize, timeDepth, nHarmonics))
-                        if "VOICING" in targetDim:
-                            nOuts = fftSize+1
-                        else:
-                            nOuts = fftSize
-                        if "1D" in targetDim:
-                            targets = np.zeros((batchSize, nOuts))
-                        elif "2D" in targetDim or "rachel" in targetDim or "BASELINE" in targetDim:
-                            targets = np.zeros((batchSize, timeDepth, nOuts))
-                        stride = np.arange(0, L, hopSize)
-                        indBatch = 0
-                        for k in stride:
-                            if l * L + k <= (curTarget.shape[-1] - timeDepth):
-                                voicingVector = None
-                                if "2D" in targetDim or "rachel" in targetDim:
-                                    inputs[indBatch,:,:,:] = curInput[:,:,l*L+k:l*L+k+timeDepth].transpose(1,2,0)
-                                else:
-                                    inputs[indBatch,:,:,:] = curInput[:,:,l*L+k:l*L+k+timeDepth].transpose(1,2,0)
-                                if "1D" in targetDim:
-                                    tar = curTarget[:, l * L + k]
-                                else:
-                                    tar = curTarget[:, l * L + k : l * L + k + timeDepth].T
-                                if binary:
-                                    tar = binarize(tar)
-                                if voicing:
-                                    if len(targets.shape)<=2:
-                                        targets[indBatch, :] = computeVoicing(tar)
-                                    else:
-                                        for m in range(tar.shape[0]):
-                                            targets[indBatch, m, :] = computeVoicing(tar[m, :])
-                                else:
-                                    targets[indBatch, :] = tar
-                                indBatch += 1
-                        if "rachel" in targetDim or "BASELINE" in targetDim:
-                            inputs = self.deepModel.predict(inputs)
-                            # targets = targets[None,:,:]
-                        if "1D" in targetDim and not "rachel" in targetDim:
-                            yield [inputs[None,:,:,:,:], targets[None,:,:]]
-                        else:
-                            yield [inputs, targets]
-                else:
-                    pass
+    ### ---------------- RETURN A GENERATOR F0R DATA AND LABELS ---------------- ###
+    # def formatDataset(self, dataset, timeDepth, targetDim, batchSize, hopSize, fftSize, nHarmonics, voicing=False, binary=False):
+    #     while 1:
+    #         if "SOFTMAX" in targetDim or "VOICING" in targetDim:
+    #             binary = True
+    #             voicing = True
+    #         self.mtracks = mdb.load_all_multitracks(dataset_version = 'V1')
+    #         tracks = [tr.track_id for tr in self.mtracks if tr.track_id in self.trackList]
+    #         tracks = [tr for tr in tracks if tr in dataset]
+    #         for track in tracks:
+    #             i = glob.glob(os.path.join(self.inputPath, '{}_mel1_input.npy'.format(track)))
+    #             j = glob.glob(os.path.join(self.targetPath, '{}_mel1_output.npy'.format(track)))
+    #             if i and j:
+    #                 curInput = np.load(i[0])
+    #                 curTarget = np.load(j[0])
+    #                 if targetDim=="1D" or "SOFTMAX" in targetDim:
+    #                     curInput = zero_pad(curInput, True, timeDepth)
+    #                 L = batchSize * hopSize
+    #                 nRounds = int(np.round((curTarget.shape[-1] - timeDepth) / L) + 1)
+    #                 for l in range(nRounds):
+    #                     if "2D" in targetDim or "rachel" in targetDim:
+    #                         inputs = np.zeros((batchSize, fftSize, timeDepth, nHarmonics))
+    #                     else:
+    #                         inputs = np.zeros((batchSize, fftSize, timeDepth, nHarmonics))
+    #                     if "VOICING" in targetDim:
+    #                         nOuts = fftSize+1
+    #                     else:
+    #                         nOuts = fftSize
+    #                     if "1D" in targetDim:
+    #                         targets = np.zeros((batchSize, nOuts))
+    #                     elif "2D" in targetDim or "rachel" in targetDim or "BASELINE" in targetDim:
+    #                         targets = np.zeros((batchSize, timeDepth, nOuts))
+    #                     stride = np.arange(0, L, hopSize)
+    #                     indBatch = 0
+    #                     for k in stride:
+    #                         if l * L + k <= (curTarget.shape[-1] - timeDepth):
+    #                             voicingVector = None
+    #                             if "2D" in targetDim or "rachel" in targetDim:
+    #                                 inputs[indBatch,:,:,:] = curInput[:,:,l*L+k:l*L+k+timeDepth].transpose(1,2,0)
+    #                             else:
+    #                                 inputs[indBatch,:,:,:] = curInput[:,:,l*L+k:l*L+k+timeDepth].transpose(1,2,0)
+    #                             if "1D" in targetDim:
+    #                                 tar = curTarget[:, l * L + k]
+    #                             else:
+    #                                 tar = curTarget[:, l * L + k : l * L + k + timeDepth].T
+    #                             if binary:
+    #                                 tar = binarize(tar)
+    #                             if voicing:
+    #                                 if len(targets.shape)<=2:
+    #                                     targets[indBatch, :] = computeVoicing(tar)
+    #                                 else:
+    #                                     for m in range(tar.shape[0]):
+    #                                         targets[indBatch, m, :] = computeVoicing(tar[m, :])
+    #                             else:
+    #                                 targets[indBatch, :] = tar
+    #                             indBatch += 1
+    #                     if "rachel" in targetDim or "BASELINE" in targetDim:
+    #                         inputs = self.deepModel.predict(inputs)
+    #                         # targets = targets[None,:,:]
+    #                     if "1D" in targetDim and not "rachel" in targetDim:
+    #                         yield [inputs[None,:,:,:,:], targets[None,:,:]]
+    #                     else:
+    #                         yield [inputs, targets]
+    #             else:
+    #                 pass
                     # log("No path found for this file")
 
-    def formatDatasetStatefull(self, dataset, timeDepth, targetDim, batchSize, hopSize, fftSize, nHarmonics, voicing=False, binary=False, rnnBatch=16):
-        _, nSequences, _ = self.sizeDataset(dataset, timeDepth, batchSize, hopSize, fftSize, nHarmonics, targetDim, rnnBatch, True)
+    def formatDataset(self, myModel, dataset, timeDepth, targetDim, batchSize, hopSize, fftSize, nHarmonics, voicing=False, rnnBatch=16, StateFull=True):
+        _, nSequences, _ = self.sizeDataset(dataset, timeDepth, batchSize, hopSize, fftSize, nHarmonics, targetDim, rnnBatch, StateFull)
         while 1:
             bucketList = self.bucketDataset(dataset, rnnBatch)
             for (s, subTracks) in enumerate(bucketList):
-            #     # myModel.reset_states()
+                myModel.reset_states()
                 if "SOFTMAX" in targetDim or "CATEGORICAL" in targetDim:
                     binary = True
                     voicing = True

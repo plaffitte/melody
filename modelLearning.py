@@ -21,95 +21,6 @@ def bkld(y_true, y_pred):
         -1.0*y_true* K.log(y_pred) - (1.0 - y_true) * K.log(1.0 - y_pred),
         axis=-1), axis=-1)
 
-def trainModel(params, dataset, trainSet, validSet, modelDim, outPath, voicing, fftSize):
-    log('')
-    log('Training Model')
-    locals().update(params)
-    batchSize = int(params['batchSize'])
-    timeDepth = int(params['timeDepth'])
-    nHarmonics = int(params['nHarmonics'])
-    hopSize = int(params['hopSize'])
-    nEpochs = int(params['nEpochs'])
-    myModel, modelSplit = model(modelDim, batchSize, fftSize, timeDepth, nHarmonics)
-    log(myModel.summary())
-    nData, trainStep, _ = dataset.sizeDataset(trainSet, timeDepth, batchSize, hopSize, modelDim)
-    _ , validStep, _ = dataset.sizeDataset(validSet, timeDepth, batchSize,hopSize, modelDim)
-    nParams = []
-    if modelSplit:
-        nParams.append([np.prod(np.shape(w)) for w in convModel.get_weights()])
-        nParams.append([np.prod(np.shape(w)) for w in recModel.get_weights()])
-        nParams = np.asarray(np.asarray(nParams).sum()).sum()
-    else:
-        nParams.append([np.prod(np.shape(w)) for w in myModel.get_weights()])
-        nParams = np.asarray(nParams).sum()
-    log("Size of Dataset in samples: ", nData)
-    nData = nData #* fftSize * int(nHarmonics) * timeDepth
-    log("Data to Parameters ratio (DPR):", int(nData) / nParams)
-    log("Number of training steps: ", trainStep)
-    dataGenerator = dataset.formatDataset(trainSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, voicing=voicing)
-    validationGenerator = dataset.formatDataset(validSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, voicing=voicing)
-    iterator = dataset.formatDataset(trainSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, voicing=voicing)
-    filepath = os.path.join(outPath, "weights.{epoch:02d}-{loss:.2f}.hdf5")
-    testModelCb = testModel(myModel, iterator, trainStep, outPath, timeDepth, modelDim, fftSize)
-    plot_losses = PlotLosses(nEpochs, outPath)
-    myModel.fit_generator(
-        generator=dataGenerator,
-        steps_per_epoch=trainStep,
-        epochs=int(nEpochs),
-        validation_data=validationGenerator,
-        validation_steps=validStep,
-        callbacks=[
-        keras.callbacks.ModelCheckpoint(filepath, save_best_only=True),
-        keras.callbacks.ReduceLROnPlateau(patience=5),
-        testModelCb,
-        keras.callbacks.EarlyStopping(patience=25, mode='min'),
-        plot_losses
-        ],
-        shuffle=False
-        )
-    return myModel, modelSplit
-
-def trainFromEpoch(myModel, params, dataset, trainSet, validSet, modelDim, outPath, voicing, fftSize):
-    log('')
-    log('Training Model')
-    locals().update(params)
-    nEpochs = int(params['epochs'])
-    log(myModel.summary())
-    nData, trainStep, _ = dataset.sizeDataset(trainSet, int(timeDepth), int(batchSize),int(hopSize), modelDim)
-    _ , validStep, _ = dataset.sizeDataset(validSet, int(timeDepth), int(batchSize),int(hopSize), modelDim)
-    nParams = []
-    if modelSplit:
-        nParams.append([np.prod(np.shape(w)) for w in convModel.get_weights()])
-        nParams.append([np.prod(np.shape(w)) for w in recModel.get_weights()])
-        nParams = np.asarray(np.asarray(nParams).sum()).sum()
-    else:
-        nParams.append([np.prod(np.shape(w)) for w in myModel.get_weights()])
-        nParams = np.asarray(nParams).sum()
-    log("Size of Dataset in samples: ", nData)
-    nData = nData * fftSize * int(nHarmonics) * int(timeDepth)
-    log("Data to Parameters ratio (DPR):", int(nData) / nParams)
-    log("Number of training steps: ", trainStep)
-    dataGenerator = dataset.formatDataset(trainSet, int(timeDepth), modelDim, int(batchSize), int(hopSize), fftSize, int(nHarmonics), voicing=voicing)
-    validationGenerator = dataset.formatDataset(validSet, int(timeDepth), modelDim, int(batchSize), int(hopSize), fftSize, int(nHarmonics), voicing=voicing)
-    iterator = dataset.formatDataset(validSet, int(timeDepth), modelDim, int(batchSize), int(hopSize), fftSize, int(nHarmonics), voicing=voicing)
-    filepath = os.path.join(outPath, "weights.{epoch:02d}-{loss:.2f}.hdf5")
-    testModelCb = testModel(myModel, iterator, int(trainStep), outPath, timeDepth, modelDim, fftSize)
-    history = myModel.fit_generator(
-        generator=dataGenerator,
-        steps_per_epoch=trainStep,
-        epochs=nEpochs,
-        validation_data=validationGenerator,
-        validation_steps=validStep,
-        callbacks=[
-        keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, verbose=1),
-        keras.callbacks.ReduceLROnPlateau(monitor='val_loss', patience=10, verbose=1),
-        testModelCb,
-        keras.callbacks.EarlyStopping(monitor='val_loss', patience=10, verbose=1, mode='min')
-        ],
-        shuffle=False
-        )
-    return myModel, modelSplit
-
 class generator(Sequence):
     def __init__(self, x_set, y_set, batch_size):
         self.x, self.y = x_set, y_set
@@ -124,7 +35,7 @@ class generator(Sequence):
 
         return np.array(batch_x), np.array(batch_y)
 
-def trainStatefull(params, dataobj, trainSet, validSet, modelDim, outPath, voicing, fftSize, rnnBatch):
+def trainModel(params, dataobj, trainSet, validSet, modelDim, outPath, voicing, fftSize, rnnBatch):
     K.set_learning_phase(1)
     log('')
     log('---> Training Statefull Model <---')
@@ -157,26 +68,22 @@ def trainStatefull(params, dataobj, trainSet, validSet, modelDim, outPath, voici
          os.mkdir(trainGraphExamplePath)
     if not os.path.isdir(validGraphExamplePath):
          os.mkdir(validGraphExamplePath)
-    dataGenerator = dataobj.formatDatasetStatefull(trainSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, voicing, rnnBatch=rnnBatch)
-    validationGenerator = dataobj.formatDatasetStatefull(validSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, voicing, rnnBatch=rnnBatch)
-    # x = np.zeros((1000,500,360))
-    # y = np.zeros((1000,500,361))
-    # gen = generator(x, y, 10)
+    dataGenerator = dataobj.formatDataset(myModel, trainSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, voicing, rnnBatch, stateFull)
+    validationGenerator = dataobj.formatDataset(myModel, validSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, voicing, rnnBatch, stateFull)
+    filepath = os.path.join(outPath, "weights.{epoch:02d}-{loss:.2f}.hdf5")
     myModel.fit_generator(
-        # gen
         generator=dataGenerator,
         steps_per_epoch=trainSteps,
         epochs=int(nEpochs),
         validation_data=validationGenerator,
         validation_steps=validSteps,
         callbacks=[
-        keras.callbacks.ModelCheckpoint(outPath, save_best_only=True),
+        keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, verbose=1),
         keras.callbacks.ReduceLROnPlateau(patience=5),
         # testModelCb,
         keras.callbacks.EarlyStopping(patience=25, mode='min'),
         # plot_losses
         ],
-        class_weight = None,
         shuffle = False
         )
     return myModel, modelSplit
@@ -305,88 +212,11 @@ def testStatefull(train, myModel, modelSplit, dataobj, testSet, outPath, params,
     hopSize = int(params['hopSize'])
     nEpochs = int(params['nEpochs'])
     stateFull = params['stateFull']
-    predictGenerator = dataobj.formatDatasetStatefull(testSet, int(timeDepth), modelDim, int(batchSize), int(hopSize), fftSize, int(nHarmonics), voicing, rnnBatch=rnnBatch)
+    predictGenerator = dataobj.formatDataset(testSet, int(timeDepth), modelDim, int(batchSize), int(hopSize), fftSize, int(nHarmonics), voicing, rnnBatch=rnnBatch)
     nData, testStep, nSongs = dataobj.sizeDataset(testSet, timeDepth, batchSize, hopSize, fftSize, nHarmonics, modelDim, rnnBatch, stateFull)
     if not train:
         print(myModel.summary())
     myModel.evaluate_generator(predictGenerator, steps=testStep)
-    # realTestSet = []
-    # mean_te_acc = []
-    # mean_te_loss = []
-    # testPath = os.path.join(outPath, 'test')
-    # nData, testStep, nSongs = dataobj.sizeDataset(testSet, timeDepth, batchSize, hopSize, fftSize, nHarmonics, modelDim, rnnBatch, stateFull)
-    # nRounds = int(np.floor(nSongs/rnnBatch))+1
-    # preds = [None] * nSongs
-    # inputs = [None] * nSongs
-    # labs = [None] * nSongs
-    # for s in range(nRounds):
-    #     log("Testing on subset {}".format(s))
-    #     myModel.reset_states()
-    #     lim = min(s*rnnBatch+rnnBatch, nSongs)
-    #     subTracks = testSet[s*rnnBatch:lim]
-    #     _, subSteps, _ = dataobj.sizeDataset(subTracks, timeDepth, batchSize, hopSize, fftSize, nHarmonics, modelDim, rnnBatch, stateFull)
-    #     predictGenerator = dataobj.formatDatasetStatefull(myModel, subTracks, int(timeDepth), modelDim, int(batchSize), int(hopSize), fftSize, int(nHarmonics), voicing=voicing, rnnBatch=rnnBatch)
-    #     if voicing:
-    #         nOut = int(fftSize)+1
-    #     else:
-    #         nOut = fftSize
-    #     for i in range(subSteps):
-    #         batch, targets, newSong = predictGenerator.__next__()
-    #         if "MULTILABEL" in modelDim:
-    #             targets, targetOctave = targets
-    #             testLoss, testAccuracy = myModel.train_on_batch(batch, [targets, targetOctave])
-    #         else:
-    #             testLoss, testAccuracy = myModel.train_on_batch(batch, targets)
-    #         out = myModel.predict(batch)
-    #         mean_te_loss.append(testLoss)
-    #         mean_te_acc.append(testAccuracy)
-    #         for j in range(batch.shape[0]):
-    #             ind = s*rnnBatch + j
-    #             if ind <= (nSongs - 1):
-    #                 if "BASELINE" in modelDim:
-    #                     curInput = batch[j,:,:]
-    #                 else:
-    #                     curInput = batch[j,:,:,5,0]
-    #                 if inputs[ind] is None:
-    #                     inputs[ind] = curInput
-    #                     preds[ind] = out[j]
-    #                     labs[ind] = targets[j]
-    #                 else:
-    #                     inputs[ind] = np.concatenate((inputs[ind], curInput), 0)
-    #                     preds[ind] = np.concatenate((preds[ind], out[j]), 0)
-    #                     labs[ind] = np.concatenate((labs[ind], targets[j]), 0)
-    # if i==subSteps-1:
-    #     path = os.path.join(testPath, 'testGraphExample{}'.format(s))
-    #     if not os.path.isdir(path):
-    #          os.mkdir(path)
-    #     for k in range(s*rnnBatch, lim):
-    #         try:
-    #             if inputs[k] is not None and labs[k] is not None:
-    #                 fig, (ax1, ax2, ax3) = plt.subplots(3,1)
-    #                 realInput = inputs[k]
-    #                 realLabel = labs[k]
-    #                 realPred = preds[k]
-    #                 mask = realInput.nonzero()
-    #                 if any(mask[0]):
-    #                     inputs[k] = realInput[0:mask[0][-1],:]
-    #                     labs[k] = realLabel[0:mask[0][-1],:]
-    #                     preds[k] = realPred[0:mask[0][-1],:]
-    #                     ax1.imshow(inputs[k].T, aspect='auto', cmap=cmap, vmax=1, vmin=0)
-    #                     ax1.set_title('INPUTS')
-    #                     ax2.imshow(labs[k].T, aspect='auto', cmap=cmap, vmax=1, vmin=0)
-    #                     ax2.set_title('TARGETS')
-    #                     ax3.imshow(preds[k].T, aspect='auto', cmap=cmap, vmax=1, vmin=0)
-    #                     ax3.set_title('OUTPUT')
-    #                     plt.savefig(os.path.join(path, subTracks[k]))
-    #                     plt.close()
-    #                 else:
-    #                     log("No mask for song:"+str(subTracks[k]))
-    #             else:
-    #                 log("Input is empty.....")
-    #         except Exception as e:
-    #             print("Error:"+str(e))
-    # log('accuracy testing = {}'.format(np.mean(mean_te_acc)))
-    # log('loss testing = {}'.format(np.mean(mean_te_loss)))
     return preds, labs, inputs, realTestSet
 
 def testCNN(train, myModel, dataset, testSet, params, modelDim, targetPath, plotTargets, voicing, fftSize):
