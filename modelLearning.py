@@ -38,7 +38,7 @@ class generator(Sequence):
 def trainModel(params, dataobj, trainSet, validSet, modelDim, outPath, voicing, fftSize, rnnBatch):
     K.set_learning_phase(1)
     log('')
-    log('---> Training Statefull Model <---')
+    log('---> Training Model <---')
     batchSize = int(params['batchSize'])
     timeDepth = int(params['timeDepth'])
     nHarmonics = int(params['nHarmonics'])
@@ -49,8 +49,8 @@ def trainModel(params, dataobj, trainSet, validSet, modelDim, outPath, voicing, 
     myModel, modelSplit = model(modelDim, batchSize, fftSize, timeDepth, nHarmonics, False, stateFull, rnnBatch)
     print(myModel.summary())
     log("Is Statefull: ", stateFull)
-    nData, trainSteps, _ = dataobj.sizeDataset(trainSet, timeDepth, batchSize, hopSize, fftSize, nHarmonics, modelDim, rnnBatch, stateFull)
-    nData, validSteps, _ = dataobj.sizeDataset(validSet, timeDepth, batchSize, hopSize, fftSize, nHarmonics, modelDim, rnnBatch, stateFull)
+    nData, trainSteps, _ = dataobj.sizeDataset(trainSet, batchSize, rnnBatch)
+    nData, validSteps, _ = dataobj.sizeDataset(validSet, batchSize, rnnBatch)
     nParams = []
     nParams.append([np.prod(np.shape(w)) for w in myModel.get_weights()])
     nParams = np.asarray(np.asarray(nParams).sum()).sum()
@@ -81,130 +81,130 @@ def trainModel(params, dataobj, trainSet, validSet, modelDim, outPath, voicing, 
         keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, verbose=1),
         keras.callbacks.ReduceLROnPlateau(patience=5),
         # testModelCb,
-        keras.callbacks.EarlyStopping(patience=25, mode='min'),
+        keras.callbacks.EarlyStopping(patience=6, mode='min'),
         # plot_losses
         ],
         shuffle = False
         )
     return myModel, modelSplit
 
-def test(train, myModel, modelSplit, dataset, testSet, params, modelDim, targetPath, plotTargets, voicing, fftSize, rnnBatch):
+# def test(train, myModel, modelSplit, dataset, testSet, params, modelDim, targetPath, plotTargets, voicing, fftSize, rnnBatch):
+#     log('')
+#     log('---> Testing Model <---')
+#     if rnnBatch == 1:
+#         singleBatch = True
+#     else:
+#         singleBatch = False
+#     if modelSplit:
+#         convModel, recModel = myModel
+#     batchSize = int(params['batchSize'])
+#     timeDepth = int(params['timeDepth'])
+#     nHarmonics = int(params['nHarmonics'])
+#     hopSize = int(params['hopSize'])
+#     nEpochs = int(params['nEpochs'])
+#     if not train:
+#         locals().update(params)
+#         if modelSplit:
+#             log(convModel.summary())
+#             log(recModel.summary())
+#         else:
+#             log(myModel.summary())
+#     _, _, lenTest = dataset.sizeDataset(testSet, int(timeDepth), int(batchSize), int(hopSize), modelDim)
+#     preds = []
+#     labs = []
+#     cnnOut = []
+#     realTestSet = []
+#     for k in range(lenTest):
+#         if isinstance(testSet[k], basestring):
+#             song = [testSet[k]]
+#         j = glob.glob(os.path.join(targetPath, '{}_mel1_output.npy'.format(song[0])))
+#         if any(j):
+#             realTestSet.append(song)
+#             if os.path.exists(j[0]):
+#                 predictGenerator = dataset.formatDatasetStatefull(song, int(timeDepth), modelDim, int(batchSize), int(hopSize), fftSize, int(nHarmonics), voicing=voicing, rnnBatch=rnnBatch)
+#                 nSamples, size, length = dataset.sizeDataset(song, int(timeDepth), int(batchSize), int(hopSize), modelDim)
+#                 if nSamples != 0:
+#                     predictions = None
+#                     labels = None
+#                     cnnPred = None
+#                     inputData = None
+#                     log("predicting on:"+str(song))
+#                     log("Size of song in blocks/samples:"+str(size)+'/'+str(nSamples))
+#                     for l in range(size):
+#                         one, two, _ = predictGenerator.__next()
+#                         ### PREDICT WITH MODEL
+#                         if modelSplit:
+#                             out = convModel.predict_on_batch(one)
+#                             # out = binarize(out)
+#                             ### USE CNN's PREDICTIONS AS INPUTS TO RNN TO BUILD TEMPORAL MODEL
+#                             newPred = recModel.predict_on_batch(out[None,:,:])
+#                             if inputData is None:
+#                                 inputData = one[:, :, 0, 0]
+#                             else:
+#                                 inputData = np.concatenate((inputData, one[:, :, 0, 0]))
+#                         else:
+#                             newPred = myModel.predict_on_batch(one)
+#                         ### SAVE PREDICTIONS AND LABELS TO VARIABLES ###
+#                         if predictions is None:
+#                             predictions = newPred
+#                             labels = two
+#                             if modelSplit:
+#                                 cnnPred = out
+#                         else:
+#                             predictions = np.concatenate((predictions, newPred))
+#                             labels = np.concatenate((labels, two))
+#                             if modelSplit:
+#                                 cnnPred = np.concatenate((cnnPred, out))
+#                         # if "SOFTMAX" in modelDim or "1D" in modelDim:
+#                         #     predictions = binarize(predictions)
+#                     ### RE-ARRANGE PREDICTIONS AND LABELS INTO CONTINUOUS MATRIX ###
+#                     log("SHAPE OF PREDICTIONS:", predictions.shape)
+#                     if len(labels.shape) == 3:
+#                         toto = None
+#                         toto2 = None
+#                         toto3 = None
+#                         for i in range(len(labels)):
+#                             limit = i*labels.shape[1]+labels.shape[1]
+#                             if limit <= nSamples:
+#                                 if toto is None:
+#                                     toto = labels[i,:,:]
+#                                     toto2 = predictions[i,:,:]
+#                                 else:
+#                                     toto = np.concatenate((toto, labels[i,:,:]), 0)
+#                                     toto2 = np.concatenate((toto2, predictions[i,:,:]), 0)
+#                                 if modelSplit:
+#                                     if toto3 is None:
+#                                         toto3 = cnnPred[i,:,:]
+#                                     else:
+#                                         toto3 = np.concatenate((toto3, cnnPred[i,:,:]), 0)
+#                                 lim = np.min((toto.shape[-1], toto2.shape[-1])) # Cut to shortest's length
+#                         labels = toto[: ,:lim]
+#                         predictions = toto2[: ,:lim]
+#                         if modelSplit:
+#                             cnnPred = toto3[: ,:lim]
+#                     elif len(labels.shape) == 2:
+#                         toto = None
+#                         toto2 = None
+#                         for l in range(predictions.shape[0]):
+#                             for k in range(predictions.shape[1]):
+#                                 if toto is None:
+#                                     toto = predictions[l, k, :, None]
+#                                     toto2 = labels[l, k, :, None]
+#                                 else:
+#                                     toto = np.concatenate((toto, predictions[l, k, :, None]), 1)
+#                                     toto2 = np.concatenate((toto2, labels[l, k, :, None]), 1)
+#                         predictions = toto.T
+#                         labels = toto2.T
+#                     preds.append(predictions)
+#                     labs.append(labels)
+#                     if modelSplit:
+#                         cnnOut.append(cnnPred)
+#
+#     return preds, labs, realTestSet, cnnOut
+
+def test(train, myModel, dataobj, testSet, params, modelDim, voicing, fftSize, rnnBatch):
     log('')
     log('---> Testing Model <---')
-    if rnnBatch == 1:
-        singleBatch = True
-    else:
-        singleBatch = False
-    if modelSplit:
-        convModel, recModel = myModel
-    batchSize = int(params['batchSize'])
-    timeDepth = int(params['timeDepth'])
-    nHarmonics = int(params['nHarmonics'])
-    hopSize = int(params['hopSize'])
-    nEpochs = int(params['nEpochs'])
-    if not train:
-        locals().update(params)
-        if modelSplit:
-            log(convModel.summary())
-            log(recModel.summary())
-        else:
-            log(myModel.summary())
-    _, _, lenTest = dataset.sizeDataset(testSet, int(timeDepth), int(batchSize), int(hopSize), modelDim)
-    preds = []
-    labs = []
-    cnnOut = []
-    realTestSet = []
-    for k in range(lenTest):
-        if isinstance(testSet[k], basestring):
-            song = [testSet[k]]
-        j = glob.glob(os.path.join(targetPath, '{}_mel1_output.npy'.format(song[0])))
-        if any(j):
-            realTestSet.append(song)
-            if os.path.exists(j[0]):
-                predictGenerator = dataset.formatDatasetStatefull(song, int(timeDepth), modelDim, int(batchSize), int(hopSize), fftSize, int(nHarmonics), voicing=voicing, rnnBatch=rnnBatch)
-                nSamples, size, length = dataset.sizeDataset(song, int(timeDepth), int(batchSize), int(hopSize), modelDim)
-                if nSamples != 0:
-                    predictions = None
-                    labels = None
-                    cnnPred = None
-                    inputData = None
-                    log("predicting on:"+str(song))
-                    log("Size of song in blocks/samples:"+str(size)+'/'+str(nSamples))
-                    for l in range(size):
-                        one, two, _ = predictGenerator.__next()
-                        ### PREDICT WITH MODEL
-                        if modelSplit:
-                            out = convModel.predict_on_batch(one)
-                            # out = binarize(out)
-                            ### USE CNN's PREDICTIONS AS INPUTS TO RNN TO BUILD TEMPORAL MODEL
-                            newPred = recModel.predict_on_batch(out[None,:,:])
-                            if inputData is None:
-                                inputData = one[:, :, 0, 0]
-                            else:
-                                inputData = np.concatenate((inputData, one[:, :, 0, 0]))
-                        else:
-                            newPred = myModel.predict_on_batch(one)
-                        ### SAVE PREDICTIONS AND LABELS TO VARIABLES ###
-                        if predictions is None:
-                            predictions = newPred
-                            labels = two
-                            if modelSplit:
-                                cnnPred = out
-                        else:
-                            predictions = np.concatenate((predictions, newPred))
-                            labels = np.concatenate((labels, two))
-                            if modelSplit:
-                                cnnPred = np.concatenate((cnnPred, out))
-                        # if "SOFTMAX" in modelDim or "1D" in modelDim:
-                        #     predictions = binarize(predictions)
-                    ### RE-ARRANGE PREDICTIONS AND LABELS INTO CONTINUOUS MATRIX ###
-                    log("SHAPE OF PREDICTIONS:", predictions.shape)
-                    if len(labels.shape) == 3:
-                        toto = None
-                        toto2 = None
-                        toto3 = None
-                        for i in range(len(labels)):
-                            limit = i*labels.shape[1]+labels.shape[1]
-                            if limit <= nSamples:
-                                if toto is None:
-                                    toto = labels[i,:,:]
-                                    toto2 = predictions[i,:,:]
-                                else:
-                                    toto = np.concatenate((toto, labels[i,:,:]), 0)
-                                    toto2 = np.concatenate((toto2, predictions[i,:,:]), 0)
-                                if modelSplit:
-                                    if toto3 is None:
-                                        toto3 = cnnPred[i,:,:]
-                                    else:
-                                        toto3 = np.concatenate((toto3, cnnPred[i,:,:]), 0)
-                                lim = np.min((toto.shape[-1], toto2.shape[-1])) # Cut to shortest's length
-                        labels = toto[: ,:lim]
-                        predictions = toto2[: ,:lim]
-                        if modelSplit:
-                            cnnPred = toto3[: ,:lim]
-                    elif len(labels.shape) == 2:
-                        toto = None
-                        toto2 = None
-                        for l in range(predictions.shape[0]):
-                            for k in range(predictions.shape[1]):
-                                if toto is None:
-                                    toto = predictions[l, k, :, None]
-                                    toto2 = labels[l, k, :, None]
-                                else:
-                                    toto = np.concatenate((toto, predictions[l, k, :, None]), 1)
-                                    toto2 = np.concatenate((toto2, labels[l, k, :, None]), 1)
-                        predictions = toto.T
-                        labels = toto2.T
-                    preds.append(predictions)
-                    labs.append(labels)
-                    if modelSplit:
-                        cnnOut.append(cnnPred)
-
-    return preds, labs, realTestSet, cnnOut
-
-def testStatefull(train, myModel, modelSplit, dataobj, testSet, outPath, params, modelDim, targetPath, inputPath, plotTargets, voicing, fftSize, rnnBatch):
-    log('')
-    log('---> Testing Statefull Model <---')
     cmap = 'hot'
     batchSize = int(params['batchSize'])
     timeDepth = int(params['timeDepth'])
@@ -212,12 +212,15 @@ def testStatefull(train, myModel, modelSplit, dataobj, testSet, outPath, params,
     hopSize = int(params['hopSize'])
     nEpochs = int(params['nEpochs'])
     stateFull = params['stateFull']
-    predictGenerator = dataobj.formatDataset(testSet, int(timeDepth), modelDim, int(batchSize), int(hopSize), fftSize, int(nHarmonics), voicing, rnnBatch=rnnBatch)
-    nData, testStep, nSongs = dataobj.sizeDataset(testSet, timeDepth, batchSize, hopSize, fftSize, nHarmonics, modelDim, rnnBatch, stateFull)
+    predictGenerator = dataobj.formatDataset(myModel, testSet, int(timeDepth), modelDim, int(batchSize), int(hopSize), fftSize, int(nHarmonics), voicing, rnnBatch=rnnBatch)
+    nData, testStep, nSongs = dataobj.sizeDataset(testSet, batchSize, rnnBatch)
     if not train:
         print(myModel.summary())
-    myModel.evaluate_generator(predictGenerator, steps=testStep)
-    return preds, labs, inputs, realTestSet
+    testLoss = myModel.evaluate_generator(predictGenerator, steps=testStep)
+    log("loss on test set:", testLoss)
+    preds = myModel.predict_generator(predictGenerator, steps=testStep)
+
+    return preds
 
 def testCNN(train, myModel, dataset, testSet, params, modelDim, targetPath, plotTargets, voicing, fftSize):
 
@@ -318,6 +321,14 @@ def testDeepSalience(dataset, testSet, params, modelDim, targetPath, fftSize):
                     pred.append(inputData.T)
     return pred, labs, realTestSet, None
 
+def zeroPad(data, maxLen, dim):
+    shape = np.shape(data)
+    newShape = shape
+    newShape[dim] = maxLen
+    zeroVec = np.zeros((newShape))
+    return np.concatenate((data, zeroVec), dim)
+
+############################################# SOME CALLBACKS ###############################################
 class testModel(keras.callbacks.LambdaCallback):
     def __init__(self, model, iterator, steps, path, timeDepth, modelDim, fftSize):
         self.iterator = iterator
@@ -336,25 +347,26 @@ class testModel(keras.callbacks.LambdaCallback):
             nOut = self.dim + 1
         else:
             nOut = self.dim
-        ycont = np.zeros((1, nOut))
-        predcont = np.zeros((1, nOut))
+        # ycont = np.zeros((1, nOut))
+        # predcont = np.zeros((1, nOut))
         for j in range(0, random.randint(1, self.steps)):
             x, y = next(self.iterator)
         pred = self.model.predict(x)
-        if len(y.shape)==3:
-            for f in range(len(x)):
-                ycont = np.concatenate((ycont, y[f, :, :]), 0)
-                predcont = np.concatenate((predcont, pred[f, :, :]), 0)
-        elif len(y.shape)==2:
-            ycont = np.concatenate((ycont, y.T), 1)
-            predcont = np.concatenate((predcont, pred.T), 1)
-        fig, (ax1, ax2) = plt.subplots(2, 1)
-        ax1.imshow(ycont.T, interpolation='nearest', aspect='auto', vmax=1, vmin=0)
-        ax1.set_title('Target')
-        ax2.imshow(predcont.T, interpolation='nearest', aspect='auto', vmax=1, vmin=0)
-        ax2.set_title('Prediction')
-        savePath = os.path.join(self.path, 'training_ex_epoch_'+str(self.n))
-        plt.savefig(savePath)
+        # if len(y.shape)==3:
+        #     for f in range(len(x)):
+        #         ycont = np.concatenate((ycont, y[f, :, :]), 0)
+        #         predcont = np.concatenate((predcont, pred[f, :, :]), 0)
+        # elif len(y.shape)==2:
+        #     ycont = np.concatenate((ycont, y.T), 1)
+        #     predcont = np.concatenate((predcont, pred.T), 1)
+        # fig, (ax1, ax2) = plt.subplots(2, 1)
+        # ax1.imshow(ycont.T, interpolation='nearest', aspect='auto', vmax=1, vmin=0)
+        # ax1.set_title('Target')
+        # ax2.imshow(predcont.T, interpolation='nearest', aspect='auto', vmax=1, vmin=0)
+        # ax2.set_title('Prediction')
+        # savePath = os.path.join(self.path, 'training_ex_epoch_'+str(self.n))
+        # plt.savefig(savePath)
+        plotScores(pred, y)
         self.n += 1
 
 class PlotLosses(keras.callbacks.Callback):
@@ -383,10 +395,3 @@ class PlotLosses(keras.callbacks.Callback):
         plt.plot(self.x, self.val_losses, label="val_loss")
         plt.legend()
         plt.savefig(os.path.join(self.path, 'trainGraph'))
-
-def zeroPad(data, maxLen, dim):
-    shape = np.shape(data)
-    newShape = shape
-    newShape[dim] = maxLen
-    zeroVec = np.zeros((newShape))
-    return np.concatenate((data, zeroVec), dim)

@@ -15,7 +15,9 @@ def calculate_metrics(preds, labels, trackList, binsPerOctave, nOctave, thresh=0
         sequences = False
     all_scores = []
     melodyEstimation = []
+    print(len(preds), len(labels))
     for [pred, truth, track] in zip(preds, labels, trackList):
+        print(pred.shape, truth.shape)
         if sequences:
             if truth is not None:
                 ref_times = None
@@ -164,7 +166,7 @@ def plotThreeScores(preds, labs, cnn, all_scores, realTestSet, testPath):
         plt.close()
 
 def plotScores(preds, labs, inputs, realTestSet, testPath):
-    cmap = "hot"
+    cmap = "viridis"
     print(len(preds, preds[0].shape))
     if isinstance(preds, list):
         for [prediction, target, inp, song] in zip(preds, labs, inputs, realTestSet):
@@ -265,41 +267,47 @@ def arrangePredictions(preds, labs, inputs, dataSet, path, cnnOut=[]):
         plotScores(preds, labs, inputs, dataSet, path)
 
 def writeScores(all_scores, outPath):
-    meanScores = {}
-    for k in all_scores[0].keys():
-        meanScores[k] = []
-    for score in all_scores:
-        meanScores['Overall Accuracy'].append(score['Overall Accuracy'])
-        meanScores['Raw Pitch Accuracy'].append(score['Raw Pitch Accuracy'])
-        meanScores['Raw Chroma Accuracy'].append(score['Raw Chroma Accuracy'])
-        meanScores['Voicing Recall'].append(score['Voicing Recall'])
-        meanScores['Voicing False Alarm'].append(score['Voicing False Alarm'])
-    meanScores['Overall Accuracy'] = np.mean(meanScores['Overall Accuracy'])
-    meanScores['Raw Pitch Accuracy'] = np.mean(meanScores['Raw Pitch Accuracy'])
-    meanScores['Raw Chroma Accuracy'] = np.mean(meanScores['Raw Chroma Accuracy'])
-    meanScores['Voicing Recall'] = np.mean(meanScores['Voicing Recall'])
-    meanScores['Voicing False Alarm'] = np.mean(meanScores['Voicing False Alarm'])
-    print(meanScores)
-    # save scores to data frame
     scores_path = os.path.join(outPath, '_all_scores.csv')
     score_summary_path = os.path.join(outPath, "_score_summary.csv")
-    # WRITE MEAN SCORE TO FILE
-    with open(score_summary_path, 'w') as csv_file:
-        writer = csv.writer(csv_file)
-        for key, value in meanScores.items():
-           writer.writerow([key, value])
-   # WRITE ALL SCORES TO FILE
-    with open(scores_path, 'w') as csv_file:
-        writer = csv.writer(csv_file)
-        line=['']
-        for key, value in all_scores[0].items():
-            line.append(key)
-        writer.writerow(line)
-        ind = 0
-        for score in all_scores:
-            line = []
-            line.append(ind)
-            for key, value in score.items():
-                line.append(value)
-            ind += 1
-            writer.writerow(line)
+
+
+    df = pandas.DataFrame(all_scores)
+    df.to_csv(scores_path)
+    df.describe().to_csv(score_summary_path)
+
+
+   #  meanScores = {}
+   #  for k in all_scores[0].keys():
+   #      meanScores[k] = []
+   #  for score in all_scores:
+   #      meanScores['Overall Accuracy'].append(score['Overall Accuracy'])
+   #      meanScores['Raw Pitch Accuracy'].append(score['Raw Pitch Accuracy'])
+   #      meanScores['Raw Chroma Accuracy'].append(score['Raw Chroma Accuracy'])
+   #      meanScores['Voicing Recall'].append(score['Voicing Recall'])
+   #      meanScores['Voicing False Alarm'].append(score['Voicing False Alarm'])
+   #  meanScores['Overall Accuracy'] = np.mean(meanScores['Overall Accuracy'])
+   #  meanScores['Raw Pitch Accuracy'] = np.mean(meanScores['Raw Pitch Accuracy'])
+   #  meanScores['Raw Chroma Accuracy'] = np.mean(meanScores['Raw Chroma Accuracy'])
+   #  meanScores['Voicing Recall'] = np.mean(meanScores['Voicing Recall'])
+   #  meanScores['Voicing False Alarm'] = np.mean(meanScores['Voicing False Alarm'])
+   #  print(meanScores)
+   #  # WRITE MEAN SCORE TO FILE
+   #  with open(score_summary_path, 'w') as csv_file:
+   #      writer = csv.writer(csv_file)
+   #      for key, value in meanScores.items():
+   #         writer.writerow([key, value])
+   # # WRITE ALL SCORES TO FILE
+   #  with open(scores_path, 'w') as csv_file:
+   #      writer = csv.writer(csv_file)
+   #      line=['']
+   #      for key, value in all_scores[0].items():
+   #          line.append(key)
+   #      writer.writerow(line)
+   #      ind = 0
+   #      for score in all_scores:
+   #          line = []
+   #          line.append(ind)
+   #          for key, value in score.items():
+   #              line.append(value)
+   #          ind += 1
+   #          writer.writerow(line)

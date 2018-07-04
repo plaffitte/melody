@@ -160,10 +160,8 @@ if __name__ == "__main__":
     else:
         if "TESTDEEPSALIENCE" in modelDim:
             preds, labs, realTestSet, cnnOut = testDeepSalience(dataset, testSet, params, "rachel", targetPath, fftSize)
-        elif stateFull:
-            preds, labs, realTestSet = testStatefull(train, myModel, modelSplit, dataset, testSet, outPath, params, modelDim, targetPath, inputPath, plotTargets, voicing, fftSize, seqNumber)
         else:
-            preds, labs, realTestSet, cnnOut = test(train, myModel, modelSplit, dataset, testSet, params, modelDim, targetPath, plotTargets, voicing, fftSize, seqNumber)
+            preds, labs, realTestSet, cnnOut = test(train, myModel, dataset, testSet, params, modelDim, voicing, fftSize, seqNumber)
 
     ### COMPUTE MIR METRICS ###
     if "SOFTMAX" in modelDim or "VOICING" in modelDim or "statefull" in modelDim:

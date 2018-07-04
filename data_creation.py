@@ -116,40 +116,21 @@ class DataSet(object):
         trainSet, validSet = sklearn.model_selection.train_test_split(restSet, train_size=0.80)
         return trainSet, validSet, testSet
 
-    def sizeDataset(self, dataset, timeDepth, batchSize, hopSize, fftSize, nHarmonics, targetDim, rnnBatch=16, stateFull=True):
+    def sizeDataset(self, dataset, batchSize, rnnBatch=16):
         length = 0 # count number of tracks
         nSamples = 0 # count number individual training examples
         nBlocks = 0 # number of batches
-        if stateFull:
-            longest, _ = self.findLongest(dataset)
-            for track in dataset[:]:
-                i = glob.glob(os.path.join(self.inputPath, '{}_mel1_input.npy'.format(track)))
-                if i:
-                    curInput = np.load(i[0])
-                    nSamples += curInput.shape[-1]
-            longest, _ = self.findLongest(dataset)
-            nBlocks = int(np.floor(longest / batchSize))
-            # nSamples = nBlocks*batchSize*fftSize*timeDepth*nHarmonics
-            length = len(dataset)
-        else:
-            for track in dataset[:]:
-                i = glob.glob(os.path.join(self.inputPath, '{}_mel1_input.npy'.format(track)))
-                j = glob.glob(os.path.join(self.targetPath, '{}_mel1_output.npy'.format(track)))
-                if i and j:
-                    curInput = np.load(i[0])
-                    n_t = curInput.shape[-1]
-                    L = batchSize * hopSize
-                    nBatches = int(np.round((n_t - timeDepth) / L) + 1)
-                    for l in range(nBatches):
-                        stride = np.arange(0, L, hopSize)
-                        for k in stride:
-                            if l * L + k <= (n_t - timeDepth):
-                                nSamples += timeDepth
-                        nBlocks += 1
-                    length += 1
-                else:
-                    sys.stdout.flush()
-                    log("NO FILE FOUND FOR SONG:\n", track)
+        bucketList = self.bucketDataset(dataset, rnnBatch)
+        for (s, subTracks) in enumerate(bucketList):
+            self.mtracks = mdb.load_all_multitracks(dataset_version = 'V1')
+            tracks = [tr.track_id for tr in self.mtracks if tr.track_id in self.trackList]
+            tracks = [tr for tr in tracks if tr in subTracks[0]]
+            longest, _ = self.findLongest(tracks)
+            nSequences = int(np.floor(longest/batchSize))
+            for b in range(nSequences):
+                nBlocks += 1
+                nSamples += rnnBatch*batchSize
+            length += len(tracks)
         return [nSamples, nBlocks, length]
 
     def findLongest(self, dataset):
@@ -183,78 +164,11 @@ class DataSet(object):
             bucketList[-1].append(sortedList[k*size: k*size+size])
         return bucketList
 
-    ### ---------------- RETURN A GENERATOR F0R DATA AND LABELS ---------------- ###
-    # def formatDataset(self, dataset, timeDepth, targetDim, batchSize, hopSize, fftSize, nHarmonics, voicing=False, binary=False):
-    #     while 1:
-    #         if "SOFTMAX" in targetDim or "VOICING" in targetDim:
-    #             binary = True
-    #             voicing = True
-    #         self.mtracks = mdb.load_all_multitracks(dataset_version = 'V1')
-    #         tracks = [tr.track_id for tr in self.mtracks if tr.track_id in self.trackList]
-    #         tracks = [tr for tr in tracks if tr in dataset]
-    #         for track in tracks:
-    #             i = glob.glob(os.path.join(self.inputPath, '{}_mel1_input.npy'.format(track)))
-    #             j = glob.glob(os.path.join(self.targetPath, '{}_mel1_output.npy'.format(track)))
-    #             if i and j:
-    #                 curInput = np.load(i[0])
-    #                 curTarget = np.load(j[0])
-    #                 if targetDim=="1D" or "SOFTMAX" in targetDim:
-    #                     curInput = zero_pad(curInput, True, timeDepth)
-    #                 L = batchSize * hopSize
-    #                 nRounds = int(np.round((curTarget.shape[-1] - timeDepth) / L) + 1)
-    #                 for l in range(nRounds):
-    #                     if "2D" in targetDim or "rachel" in targetDim:
-    #                         inputs = np.zeros((batchSize, fftSize, timeDepth, nHarmonics))
-    #                     else:
-    #                         inputs = np.zeros((batchSize, fftSize, timeDepth, nHarmonics))
-    #                     if "VOICING" in targetDim:
-    #                         nOuts = fftSize+1
-    #                     else:
-    #                         nOuts = fftSize
-    #                     if "1D" in targetDim:
-    #                         targets = np.zeros((batchSize, nOuts))
-    #                     elif "2D" in targetDim or "rachel" in targetDim or "BASELINE" in targetDim:
-    #                         targets = np.zeros((batchSize, timeDepth, nOuts))
-    #                     stride = np.arange(0, L, hopSize)
-    #                     indBatch = 0
-    #                     for k in stride:
-    #                         if l * L + k <= (curTarget.shape[-1] - timeDepth):
-    #                             voicingVector = None
-    #                             if "2D" in targetDim or "rachel" in targetDim:
-    #                                 inputs[indBatch,:,:,:] = curInput[:,:,l*L+k:l*L+k+timeDepth].transpose(1,2,0)
-    #                             else:
-    #                                 inputs[indBatch,:,:,:] = curInput[:,:,l*L+k:l*L+k+timeDepth].transpose(1,2,0)
-    #                             if "1D" in targetDim:
-    #                                 tar = curTarget[:, l * L + k]
-    #                             else:
-    #                                 tar = curTarget[:, l * L + k : l * L + k + timeDepth].T
-    #                             if binary:
-    #                                 tar = binarize(tar)
-    #                             if voicing:
-    #                                 if len(targets.shape)<=2:
-    #                                     targets[indBatch, :] = computeVoicing(tar)
-    #                                 else:
-    #                                     for m in range(tar.shape[0]):
-    #                                         targets[indBatch, m, :] = computeVoicing(tar[m, :])
-    #                             else:
-    #                                 targets[indBatch, :] = tar
-    #                             indBatch += 1
-    #                     if "rachel" in targetDim or "BASELINE" in targetDim:
-    #                         inputs = self.deepModel.predict(inputs)
-    #                         # targets = targets[None,:,:]
-    #                     if "1D" in targetDim and not "rachel" in targetDim:
-    #                         yield [inputs[None,:,:,:,:], targets[None,:,:]]
-    #                     else:
-    #                         yield [inputs, targets]
-    #             else:
-    #                 pass
-                    # log("No path found for this file")
-
     def formatDataset(self, myModel, dataset, timeDepth, targetDim, batchSize, hopSize, fftSize, nHarmonics, voicing=False, rnnBatch=16, StateFull=True):
-        _, nSequences, _ = self.sizeDataset(dataset, timeDepth, batchSize, hopSize, fftSize, nHarmonics, targetDim, rnnBatch, StateFull)
         while 1:
             bucketList = self.bucketDataset(dataset, rnnBatch)
             for (s, subTracks) in enumerate(bucketList):
+                # log("Subset of tracks number", s)
                 myModel.reset_states()
                 if "SOFTMAX" in targetDim or "CATEGORICAL" in targetDim:
                     binary = True
@@ -262,8 +176,10 @@ class DataSet(object):
                 self.mtracks = mdb.load_all_multitracks(dataset_version = 'V1')
                 tracks = [tr.track_id for tr in self.mtracks if tr.track_id in self.trackList]
                 tracks = [tr for tr in tracks if tr in subTracks[0]]
-                # get size of longest track and set it as number of nBatches
-                if voicing:
+                longest, _ = self.findLongest(tracks)
+                nSequences = int(np.floor(longest/batchSize))
+                # log("Number of sequences:", nSequences)
+                if voicing: # get size of longest track and set it as number of nBatches
                     nOuts = fftSize+1
                 else:
                     nOuts = fftSize
@@ -325,6 +241,29 @@ class DataSet(object):
                         yield inputs, [targetNote, targetOctave]
                     else:
                         yield inputs, targets
+
+def getLabels(myModel, dataobj, testSet, params, modelDim, targetPath, voicing, fftSize, rnnBatch):
+    batchSize = int(params['batchSize'])
+    timeDepth = int(params['timeDepth'])
+    nHarmonics = int(params['nHarmonics'])
+    hopSize = int(params['hopSize'])
+    nEpochs = int(params['nEpochs'])
+    stateFull = params['stateFull']
+    _, _, lenTest = dataobj.sizeDataset(testSet, batchSize, rnnBatch)
+    labs = []
+    cnnOut = []
+    realTestSet = []
+    predictGenerator = dataobj.formatDataset(myModel, testSet, int(timeDepth), modelDim, int(batchSize), int(hopSize), fftSize, int(nHarmonics), voicing=voicing, rnnBatch=rnnBatch)
+    nSamples, size, length = dataobj.sizeDataset(testSet, batchSize, rnnBatch)
+    if nSamples != 0:
+        labels = None
+        for l in range(size):
+            one, two = predictGenerator.__next__()
+            if labels is None:
+                labels = two
+            else:
+                labels = np.concatenate((labels, two))
+    return labels, realTestSet, cnnOut
 
 def createAnnotation(time_grid, freq_grid, time, freq):
 

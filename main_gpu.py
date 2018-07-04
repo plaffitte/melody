@@ -32,7 +32,8 @@ import medleydb as mdb
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 from evaluation import calculate_metrics, arrangePredictions, writeScores
-from modelLearning import trainModel, test, testCNN, testDeepSalience, testStatefull
+from modelLearning import trainModel, test, testCNN, testDeepSalience
+from data_creation import getLabels
 import mir_eval
 from plotFunction import plot
 import csv
@@ -197,10 +198,11 @@ if __name__ == "__main__":
     else:
         if "TESTDEEPSALIENCE" in modelDim:
             preds, labs, realTestSet, cnnOut = testDeepSalience(dataset, testSet, params, "rachel", targetPath, fftSize)
-        elif stateFull:
-            preds, labs, inputs, realTestSet = testStatefull(train, myModel, modelSplit, dataset, testSet, outPath, params, modelDim, targetPath, inputPath, plotTargets, voicing, fftSize, seqNumber)
         else:
-            preds, labs, realTestSet, cnnOut = test(train, myModel, modelSplit, dataset, testSet, params, modelDim, targetPath, plotTargets, voicing, fftSize, seqNumber)
+            preds = test(train, myModel, dataset, testSet, params, modelDim, voicing, fftSize, seqNumber)
+
+    ### GET LABELS ###
+    labs, realTestSet, cnnOut = getLabels(myModel, dataset, testSet, params, modelDim, targetPath, voicing, fftSize, seqNumber)
 
     if "SOFTMAX" in modelDim or "CATEGORICAL" in modelDim:
         th = 0.5
@@ -217,6 +219,7 @@ if __name__ == "__main__":
         all_scores, melodyEstimation = calculate_metrics(preds, labs, testSet, int(binsPerOctave), int(nOctave), thresh=th, voicing=voicing)
     else:
         all_scores, melodyEstimation = calculate_metrics(preds, labs, testSet, int(binsPerOctave), int(nOctave), thresh=th, voicing=voicing)
+    print(len(all_scores))
     writeScores(all_scores, outPath)
     plot(outPath)
 
