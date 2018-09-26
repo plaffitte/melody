@@ -3,102 +3,158 @@ import mir_eval
 import compute_training_data as C
 import scipy
 import matplotlib.pyplot as plt
-import os, csv
+import os, csv, re
 from utils import binarize, log
+import pandas
+import medleydb as mdb
+import librosa, pandas
 
-def calculate_metrics(preds, labels, trackList, binsPerOctave, nOctave, thresh=0.5, voicing=False):
+FMIN = 32.7
+Fs = 22050#44100
 
+def calculate_metrics(dataobj, preds, labels, inp, trackList, binsPerOctave, nOctave, path, batchSize=500, rnnBatch=16, thresh=0.5, voicing=False):
     log("THRESHOLD IS:", thresh)
-    if len(preds[0].shape)>=3:
-        sequences = True
+    if isinstance(preds, list):
+        sequences = False # Data is just a list of songs
     else:
-        sequences = False
+        sequences = True  # Data is formatted in interwoven batches of songs according to statefull generator
     all_scores = []
-    melodyEstimation = []
-    print(len(preds), len(labels))
-    for [pred, truth, track] in zip(preds, labels, trackList):
-        print(pred.shape, truth.shape)
-        if sequences:
-            if truth is not None:
-                ref_times = None
-                ref_freqs = None
-                for i in range(len(pred)):
-                    seq = pred[i]
-                    base = truth[i]
-                    rt, rf = pitch_activations_to_melody(
-                    base, binsPerOctave, nOctave, thresh=thresh, voicing=voicing, mod=False
-                    )
-                    et, ef = pitch_activations_to_melody(
-                    seq, binsPerOctave, nOctave, thresh=thresh, voicing=voicing, mod=True
-                    )
-                    if ref_freqs is None:
-                        ref_times, ref_freqs = rt, rf
-                        est_times, est_freqs = et, ef
-                    else:
-                        ref_times = np.concatenate((ref_times, rt))
-                        ref_freqs = np.concatenate((ref_freqs, rf))
-                        est_times = np.concatenate((est_times, et))
-                        est_freqs = np.concatenate((est_freqs, ef))
-        else:
-            if truth is not None:
-                ref_times, ref_freqs = pitch_activations_to_melody(
+    inputs = []
+    predictions = []
+    targets = []
+    offset = 0
+    if sequences:
+        bucketList = dataobj.bucketDataset(trackList, rnnBatch)
+        for (b, subTracks) in enumerate(bucketList):
+            L, longest = dataobj.findLongest(subTracks[0])
+            nSequences = int(np.floor(L/batchSize))
+            print(nSequences*rnnBatch, offset, preds.shape)
+            for s, song in enumerate(sorted(subTracks[0])):
+                ### GET CSV ANNOT FILE TO DETERMINE REAL LENGTH OF SONG
+                annotFile = os.path.join('/net/assdb/data/mir2/MedleyDB/Annotations/Melody_Annotations/MELODY2/', song+'_MELODY2.csv')
+                if annotFile is not None and os.path.exists(annotFile):
+                    annot = pandas.read_csv(annotFile, header=None)
+                    f = annot.values[:,1]
+                    t = annot.values[:,0]
+                    length = int(len(f) / (44100/Fs))
+                    ### USE ANNOTATIONS AS LABELS TO COMPUTE SCORES
+                    # idx = np.array(np.arange(0, len(t), 44100/Fs), dtype='int32')
+                    # ref_freqs = f[idx]
+                    # ref_times = t[idx]
+                    ref_freqs = None
+                    est_freqs = None
+                    inputs.append(None)
+                    predictions.append(None)
+                    targets.append(None)
+                    for k in np.arange(s, nSequences*rnnBatch, rnnBatch):
+                        pred = preds[offset + k]
+                        truth = labels[offset + k]
+                        curInput = inp[offset + k]
+                        if truth is not None and np.array(truth.nonzero()).any():
+                            rt = get_time_grid(binsPerOctave, nOctave, len(truth), Fs, 256)
+                            rf = pitch_activations_to_melody(
+                            truth, binsPerOctave, nOctave, thresh=thresh, voicing=voicing, mod=False
+                            )
+                            et = get_time_grid(binsPerOctave, nOctave, len(pred), Fs, 256)
+                            ef = pitch_activations_to_melody(
+                            pred, binsPerOctave, nOctave, thresh=thresh, voicing=voicing, mod=True
+                            )
+                            if inputs[-1] is None:
+                                ref_freqs = rf
+                                est_freqs = ef
+                                ref_times = rt
+                                est_times = et
+                                inputs[-1] = curInput
+                                predictions[-1] = pred
+                                targets[-1] = truth
+                            else:
+                                ref_freqs = np.concatenate((ref_freqs, rf))
+                                est_freqs = np.concatenate((est_freqs, ef))
+                                est_times = np.concatenate((est_times, et))
+                                ref_times = np.concatenate((ref_times, rt))
+                                inputs[-1] = np.concatenate((inputs[-1], curInput))
+                                predictions[-1] = np.concatenate((predictions[-1], pred))
+                                targets[-1] = np.concatenate((targets[-1], truth))
+                ref_times = ref_times[:length]
+                ref_freqs = ref_freqs[:length]
+                est_times = est_times[:length]
+                est_freqs = est_freqs[:length]
+                inputs[-1] = inputs[-1][:length]
+                predictions[-1] = predictions[-1][:length]
+                targets[-1] = targets[-1][:length]
+                scores = mir_eval.melody.evaluate(ref_times, ref_freqs, est_times, est_freqs)
+                all_scores.append(scores)
+
+                csvPath = os.path.join(path, 'csv')
+                if not os.path.exists(csvPath):
+                    os.mkdir(csvPath)
+                with open(os.path.join(csvPath, song +'referenceHertz.csv'), 'w') as f:
+                    writer = csv.writer(f, delimiter=',')
+                    writer.writerows([ref_freqs, ref_times])
+                with open(os.path.join(csvPath, song +'predictionHertz.csv'), 'w') as f:
+                    writer = csv.writer(f, delimiter=',')
+                    writer.writerows([est_freqs, est_times])
+                np.save(os.path.join(path, song+'preds.npy'), predictions[-1])
+                np.save(os.path.join(path, song+'targets.npy'), targets[-1])
+            offset += k+1
+        # predictions = binarize(predictions)
+        plotScores(predictions, targets, inputs, trackList, path, rnnBatch)
+    else:
+        for (pred, truth, curInput, song) in zip(preds, labels, inp, trackList):
+            if truth is not None and np.array(truth.nonzero()).any():
+                if len(truth)==len(pred)-1:
+                    pred = pred[:-1,:]
+                mask = np.where(truth==-1)
+                if any(mask[1]):
+                    curInput = curInput[0:mask[0][0],:]
+                    truth = truth[0:mask[0][0],:]
+                    pred = pred[0:mask[0][0],:]
+                ref_times = get_time_grid(binsPerOctave, nOctave, len(truth), Fs, 256)
+                ref_freqs = pitch_activations_to_melody(
                 truth, binsPerOctave, nOctave, thresh=thresh, voicing=voicing, mod=False
                 )
-                est_times, est_freqs = pitch_activations_to_melody(
+                est_times = get_time_grid(binsPerOctave, nOctave, len(pred), Fs, 256)
+                est_freqs = pitch_activations_to_melody(
                 pred, binsPerOctave, nOctave, thresh=thresh, voicing=voicing, mod=True
                 )
-        # convert time and freq arrays to boolean and cents
-        # ref_voicing, ref_cent, est_voicing, est_cent = mir_eval.melody.to_cent_voicing(ref_times, ref_freqs, est_times, est_freqs)
-        scores = mir_eval.melody.evaluate(ref_times, ref_freqs, est_times, est_freqs)
-        all_scores.append(scores)
-        melodyEstimation.append(ref_freqs)
-    return all_scores, melodyEstimation
+                ### GET CSV ANNOT FILE TO DETERMINE REAL LENGTH OF SONG
+                annotFile = os.path.join('/net/assdb/data/mir2/MedleyDB/Annotations/Melody_Annotations/MELODY2/', song+'_MELODY2.csv')
+                if annotFile is not None and os.path.exists(annotFile):
+                    annot = pandas.read_csv(annotFile, header=None)
+                    f = annot.values[:,1]
+                    t = annot.values[:,0]
+                    length = int(len(f) / (44100/Fs))
+                    est_times = est_times[:length]
+                    est_freqs = est_freqs[:length]
+                    ref_times = ref_times[:length]
+                    ref_freqs = ref_freqs[:length]
+                    np.save(os.path.join(path, song+'preds.npy'), pred)
+                    np.save(os.path.join(path, song+'targets.npy'), truth)
+                    scores = mir_eval.melody.evaluate(ref_times, ref_freqs, est_times, est_freqs)
+                    all_scores.append(scores)
 
-def get_best_thresh(dat, model, files):
-
-    thresh_vals = np.arange(0.1, 1.0, 0.1)
-    thresh_scores = {t: [] for t in thresh_vals}
-    for track in files:
-        preds = glob.glob(os.path.join(self.input_path, '{}_mel1_input.npy'.format(track)))
-        truth = glob.glob(os.path.join(self.input_path, '{}_mel1_input.npy'.format(track)))
-        curInput = np.load(track[0])
-        file_keys = os.path.basename(track).split('_')[:2]
-        label_file = glob.glob(
-            os.path.join(
-                test_set_path, 'mdb_test',
-                "{}*{}.txt".format(file_keys[0], file_keys[1]))
-        )[0]
-
-        # generate prediction on nupitch_activation_matmpy file
-        predicted_output, input_hcqt = \
-            get_single_test_prediction(curInput, model)
-
-        # load ground truth labels
-        ref_times, ref_freqs = \
-            mir_eval.io.load_ragged_time_series(label_file)
-
-        for thresh in thresh_vals:
-            # get multif0 output from prediction
-            est_times, est_freqs = \
-                pitch_activations_to_mf0(predicted_output, thresh)
-
-            # get multif0 metrics and append
-            scores = mir_eval.multipitch.evaluate(
-                ref_times, ref_freqs, est_times, est_freqs)
-            thresh_scores[thresh].append(scores['Accuracy'])
-
-    return thresh_vals, thresh_scores
+                    csvPath = os.path.join(path, 'csv')
+                    if not os.path.exists(csvPath):
+                        os.mkdir(csvPath)
+                    with open(os.path.join(csvPath, song +'referenceHertz.csv'), 'w') as f:
+                        writer = csv.writer(f, delimiter=',')
+                        writer.writerows([ref_freqs, ref_times])
+                    with open(os.path.join(csvPath, song +'predictionHertz.csv'), 'w') as f:
+                        writer = csv.writer(f, delimiter=',')
+                        writer.writerows([est_freqs, est_times])
+        # preds = binarize(preds)
+        plotScores(preds, labels, inp, trackList, path, rnnBatch)
+    return all_scores, [], [], inputs
 
 def pitch_activations_to_melody(pitch_activation_mat, binsPerOctave, nOctave, thresh=0.5, voicing=False, mod=False):
     """Convert a pitch activation map to melody line (sequence of frequencies)
     """
     s = pitch_activation_mat.shape
     if s[0]==binsPerOctave*nOctave or s[0]==binsPerOctave*nOctave+1:
-        ind = 0
+        ind = 0 # index of frequency axis
     else:
         ind = 1
-    freqs = C.get_freq_grid(binsPerOctave, nOctave)
-    times = C.get_time_grid(binsPerOctave, nOctave, s[ind])
+    freqs = get_freq_grid(binsPerOctave, nOctave)
     if voicing:
         melodyEstimation = np.zeros((s[1-ind])) # build melody pitch estimation vector
         voiced = np.zeros(s[1-ind]) # build voicing array
@@ -106,55 +162,53 @@ def pitch_activations_to_melody(pitch_activation_mat, binsPerOctave, nOctave, th
         idxThreshold = np.where(highest==0)[0] # get voicing predictions
         voiced[idxThreshold] = 1
         voiced = 1 - voiced
-        estFreqs = freqs[highest] # read wich frequencies were detected
-        if s[0]==binsPerOctave*nOctave or s[0]==binsPerOctave*nOctave+1:
-            newPitchMat = np.zeros((s[ind] - 1, s[1-ind]))
-        else:
-            newPitchMat = np.zeros((s[1-ind], s[ind] - 1))
-        for i in range(len(highest)):
-            if s[0]==binsPerOctave*nOctave:
-                newPitchMat[:,i] = np.delete(pitch_activation_mat[:,i], highest[i])
-            else:
-                newPitchMat[i,:] = np.delete(pitch_activation_mat[i,:], highest[i])
-        secondHighest = np.argmax(newPitchMat, ind)
-        estVoiced = freqs[(secondHighest + 1)] # read second highest probability for unvoiced
+        estFreqs = freqs[highest-1] # read wich frequencies were detected
+        secondHighest = np.argmax(pitch_activation_mat[:,1:], ind)
+        estUnvoiced = freqs[(secondHighest)] # read second highest probability for unvoiced
         melodyEstimation[voiced==1] = estFreqs[voiced==1]
+        melodyEstimation[voiced==0] = 0 - estUnvoiced[voiced==0]
         if mod:
             if s[0]==binsPerOctave*nOctave or s[0]==binsPerOctave*nOctave+1:
                 pitch_activation_mat[:,voiced==0] = 0
             else:
                 pitch_activation_mat[voiced==0,:] = 0
     else:
-        melodyEstimation = np.zeros((s[1-ind])) # build melody pitch estimation vector
-        voiced = np.zeros(s[1-ind]) # build voicing array
-        highest = np.argmax(pitch_activation_mat, ind)
-        idxThreshold = np.where(highest >= thresh) # get time index where predictions are above threshold
-        voiced[idxThreshold] = 1
-        if s[0]==binsPerOctave*nOctave or s[0]==binsPerOctave*nOctave+1:
-            newPitchMat = np.zeros((s[ind] - 1, s[1-ind]))
-        else:
-            newPitchMat = np.zeros((s[1-ind], s[ind] - 1))
-        for i in range(len(highest)):
-            if s[0]==binsPerOctave*nOctave:
-                newPitchMat[:,i] = np.delete(pitch_activation_mat[:,i], highest[i])
+        max_idx = np.argmax(pitch_activation_mat, axis=ind)
+        melodyEstimation = []
+        nopitch = np.where(pitch_activation_mat.any(ind)==False)[0]
+        for i, f in enumerate(max_idx):
+            if i in nopitch:
+                melodyEstimation.append(0.0)
             else:
-                newPitchMat[i,:] = np.delete(pitch_activation_mat[i,:], highest[i])
-        secondHighest = np.argmax(newPitchMat, ind)
-        estFreqs = freqs[highest] # read which frequencies were detected
-        estVoiced = freqs[(secondHighest + 1)] # read second highest probability for unvoiced
-        melodyEstimation[voiced==1] = estFreqs[voiced==1]
-        if mod:
-            melodyEstimation[voiced==0] = 0 - estVoiced[voiced==0]
-            if s[0]==binsPerOctave*nOctave or s[0]==binsPerOctave*nOctave+1:
-                pitch_activation_mat[:,voiced==0] = 0
-            else:
-                pitch_activation_mat[voiced==0,:] = 0
+                if pitch_activation_mat[i, f] < thresh and mod:
+                    melodyEstimation.append(-1.0*freqs[f])
+                else:
+                    melodyEstimation.append(freqs[f])
+        melodyEstimation = np.array(melodyEstimation)
 
-    return times, melodyEstimation
+    return melodyEstimation
+
+
+
+def get_time_grid(bins_per_octave, n_octaves, n_time_frames, Fs, hop):
+    """Get the hcqt time grid
+    """
+    time_grid = librosa.core.frames_to_time(
+        range(n_time_frames), sr=Fs, hop_length=hop
+    )
+    return time_grid
+
+def get_freq_grid(bins_per_octave, n_octaves):
+    """Get the hcqt frequency grid
+    """
+    freq_grid = librosa.cqt_frequencies(
+        bins_per_octave*n_octaves, FMIN, bins_per_octave=bins_per_octave
+    )
+    return freq_grid
 
 def plotThreeScores(preds, labs, cnn, all_scores, realTestSet, testPath):
     for [prediction, target, cnnOut, song] in zip(preds, labs, cnn, realTestSet):
-        # prediction = binarize(prediction)
+        prediction = binarize(prediction)
         fig, (ax1, ax2, ax3) = plt.subplots(3,1)
         ax1.imshow(target.T, interpolation='nearest', aspect='auto', vmax=1, vmin=0)
         ax1.set_title('Labels')
@@ -165,149 +219,69 @@ def plotThreeScores(preds, labs, cnn, all_scores, realTestSet, testPath):
         plt.savefig(os.path.join(testPath, song[0]+'_result_melody1.png'))
         plt.close()
 
-def plotScores(preds, labs, inputs, realTestSet, testPath):
+def plotScores(preds, labs, inputs, realTestSet, testPath, rnnBatch):
     cmap = "viridis"
-    print(len(preds, preds[0].shape))
     if isinstance(preds, list):
-        for [prediction, target, inp, song] in zip(preds, labs, inputs, realTestSet):
-            # prediction = binarize(prediction)
-            log("song:", song)
-            if target is not None:
-                if target.shape[0] > target.shape[1]:
-                    target = target.T
-                if prediction.shape[0] > prediction.shape[1]:
-                    prediction = prediction.T
-                if inp.shape[0] > inp.shape[1]:
-                    inp = inp.T
-                if isinstance(song, list):
-                    song = song[0]
-                mask = inp.nonzero()
-                print(len(realInput))
-                print(mask[0][-1])
-                if any(mask[0]):
-                    inp = realInput[0:mask[0][-1],:]
-                    tar = realLabel[0:mask[0][-1],:]
-                    pred = realPred[0:mask[0][-1],:]
-                fig, (ax1, ax2, ax3) = plt.subplots(3,1)
-                ax1.imshow(inp, aspect='auto', cmap=cmap, vmax=1, vmin=0)
-                ax1.set_title('INPUTS')
-                ax2.imshow(tar, interpolation='nearest', aspect='auto', cmap=cmap, vmax=1, vmin=0)
-                ax2.set_title('TARGETS')
-                ax3.imshow(pred, interpolation='nearest', aspect='auto', cmap=cmap, vmax=1, vmin=0)
-                ax3.set_title('OUTPUTS')
-                plt.savefig(os.path.join(testPath, song+'_result_melody1.png'))
-                plt.close()
+        plotLinear(preds, labs, inputs, realTestSet, testPath)
     else:
-        # prediction = binarize(prediction)
+        preds = binarize(preds)
         if labs is not None:
-            print(len(labs))
-            print(len(preds))
-            fig, (ax1, ax2) = plt.subplots(2,1)
-            ax1.imshow(labs.T, interpolation='nearest', aspect='auto', cmap=cmap, vmax=1, vmin=0)
-            ax1.set_title('Labels')
-            ax2.imshow(preds.T, interpolation='nearest', aspect='auto', cmap=cmap, vmax=1, vmin=0)
-            ax2.set_title('Output')
-            plt.savefig(os.path.join(testPath, song[0]+'_result_melody1.png'))
-            plt.close()
+            pred = [None] * rnnBatch
+            inp = [None] * rnnBatch
+            lab = [None] * rnnBatch
+            for j in range(preds.shape[0]):
+                for k in range(rnnBatch):
+                    if inp[k] is None:
+                        inp[k] = inputs[j]
+                        pred[k] = preds[j]
+                        lab[k] = labs[j]
+                    else:
+                        inp[k] = np.concatenate((inp[k], inputs[j]), 0)
+                        pred[k] = np.concatenate((pred[k], preds[j]), 0)
+                        lab[k] = np.concatenate((lab[k], labs[j]), 0)
+            for k in range(rnnBatch):
+                fig, (ax1, ax2, ax3) = plt.subplots(3,1)
+                ax1.imshow(inp[k].T, aspect='auto', cmap="hot", vmax=1, vmin=0, origin='lower')
+                ax1.set_title('INPUTS')
+                ax2.imshow(pred[k].T, aspect='auto', cmap="hot", vmax=1, vmin=0, origin='lower')
+                ax2.set_title('OUTPUT')
+                ax3.imshow(lab[k].T, aspect='auto', cmap="hot", vmax=1, vmin=0, origin='lower')
+                ax3.set_title('TARGETS')
+                plt.savefig(os.path.join(testPath, 'batch-{}_result_melody1.png'.format(k)))
+                plt.close()
+                np.save(os.path.join(testPath, 'mel2_targets.npy'), lab[k].astype(np.float32))
+                np.save(os.path.join(testPath, 'mel2_outputs.npy'), pred[k].astype(np.float32))
 
-def arrangePredictions(preds, labs, inputs, dataSet, path, cnnOut=[]):
-    ## SAVE (AND PLOT) TEST RESULTS ###
-    p = []
-    l = []
-    c = []
-    i = []
-    print(len(preds), preds[0].shape)
-    if len(preds[0].shape)==3:
-        if "TESTDEEPSALIENCE" in modelDim:
-            for (pred, lab, inp) in zip(preds, labs, inputs):
-                toto = np.zeros((1, int(fftSize)))
-                toto2 = np.zeros((1, int(fftSize)))
-                toto3 = np.zeros((1, int(fftSize)))
-                for i in range(pred.shape[0]):
-                    toto = np.concatenate((toto, lab[i, :, :]), 0)
-                    toto2 = np.concatenate((toto2, pred[i, :, :]), 0)
-                    toto3 = np.concatenate((toto3, inp[i, :, :]), 0)
-                    lim = np.min((toto.shape[-1], toto2.shape[-1])) # Cut to shortest's length
-                labels = toto[:, 1:lim]
-                predictions = toto2[:, 1:lim]
-                curInput = toto3[:, 1:lim]
-                p.append(predictions)
-                l.append(labels)
-                i.append(curInput)
+def plotLinear(output, label, inputs, songList, testPath):
+    cmap = "viridis"
+    for [out, lab, inp, song] in zip(output, label, inputs, songList):
+        if out.shape[0] > out.shape[1]:
+            out = out.transpose(1,0)
+        if lab.shape[0] > lab.shape[1]:
+            lab = lab.transpose(1,0)
+        if len(inp.shape)==3:
+            inp = inp[0,:,:]
         else:
-            for (pred, lab, cnn, inp) in zip(preds, labs, inputs, cnnOut):
-                # pred = binarize(pred)
-                if "SOFTMAX" in modelDim or "VOICING" in modelDim:
-                    toto = np.zeros((int(fftSize)+1, 1))
-                    toto2 = np.zeros((int(fftSize)+1, 1))
-                    toto3 = np.zeros((int(fftSize)+1, 1))
-                    toto4 = np.zeros((int(fftSize)+1, 1))
-                else:
-                    toto = np.zeros((int(fftSize), 1))
-                    toto2 = np.zeros((int(fftSize), 1))
-                    toto3 = np.zeros((int(fftSize), 1))
-                    toto4 = np.zeros((int(fftSize), 1))
-                for i in range(pred.shape[0]):
-                    for j in range(pred.shape[2]):
-                        toto = np.concatenate((toto, lab[i, :, j, None]), 1)
-                        toto2 = np.concatenate((toto2, pred[i, :, j, None]), 1)
-                        toto3 = np.concatenate((toto3, cnn[i, :, j, None]), 1)
-                        toto4 = np.concatenate((toto4, inp[i, :, j, None]), 1)
-                        lim = np.min((toto.shape[-1], toto2.shape[-1])) # Cut to shortest's length
-                labels = toto[:, 1:lim]
-                predictions = toto2[:, 1:lim]
-                cnnOutput = toto3[:, 1:lim]
-                curInput = toto4[:, 1:lim]
-                p.append(predictions)
-                l.append(labels)
-                i.append(curInput)
-                c.append(cnnOutput)
-        plotScores(p, l, i, dataSet, path)
-    else:
-        plotScores(preds, labs, inputs, dataSet, path)
+            inp = inp
+        # plt.imshow(lab, aspect='auto', origin='lower', cmap=cmap, vmax=1, vmin=0)
+        # fig, (ax1, ax2, ax3) = plt.subplots(3,1)
+        fig, (ax1, ax2) = plt.subplots(2,1)
+        # ax3.imshow(inp.T, aspect='auto', origin='lower', cmap=cmap, vmax=1, vmin=0)
+        # ax3.set_title('INPUTS')
+        ax2.imshow(lab, aspect='auto', origin='lower', cmap=cmap, vmax=1, vmin=0)
+        ax2.set_title('TARGETS')
+        ax1.imshow(out, aspect='auto', origin='lower', cmap=cmap, vmax=1, vmin=0)
+        ax1.set_title('OUTPUTS')
+        plt.savefig(os.path.join(testPath, song+'_result_melody1.png'))
+        plt.close()
+        # np.save(os.path.join(testPath, 'mel2_targets.npy'), lab.astype(np.float32))
+        # np.save(os.path.join(testPath, 'mel2_outputs.npy'), out.astype(np.float32))
 
 def writeScores(all_scores, outPath):
-    scores_path = os.path.join(outPath, '_all_scores.csv')
-    score_summary_path = os.path.join(outPath, "_score_summary.csv")
-
-
-    df = pandas.DataFrame(all_scores)
+    log("Writing scores to csv files")
+    scores_path = os.path.join(outPath, 'all_scores.csv')
+    score_summary_path = os.path.join(outPath, "score_summary.csv")
+    df = pandas.DataFrame(data=all_scores)
     df.to_csv(scores_path)
     df.describe().to_csv(score_summary_path)
-
-
-   #  meanScores = {}
-   #  for k in all_scores[0].keys():
-   #      meanScores[k] = []
-   #  for score in all_scores:
-   #      meanScores['Overall Accuracy'].append(score['Overall Accuracy'])
-   #      meanScores['Raw Pitch Accuracy'].append(score['Raw Pitch Accuracy'])
-   #      meanScores['Raw Chroma Accuracy'].append(score['Raw Chroma Accuracy'])
-   #      meanScores['Voicing Recall'].append(score['Voicing Recall'])
-   #      meanScores['Voicing False Alarm'].append(score['Voicing False Alarm'])
-   #  meanScores['Overall Accuracy'] = np.mean(meanScores['Overall Accuracy'])
-   #  meanScores['Raw Pitch Accuracy'] = np.mean(meanScores['Raw Pitch Accuracy'])
-   #  meanScores['Raw Chroma Accuracy'] = np.mean(meanScores['Raw Chroma Accuracy'])
-   #  meanScores['Voicing Recall'] = np.mean(meanScores['Voicing Recall'])
-   #  meanScores['Voicing False Alarm'] = np.mean(meanScores['Voicing False Alarm'])
-   #  print(meanScores)
-   #  # WRITE MEAN SCORE TO FILE
-   #  with open(score_summary_path, 'w') as csv_file:
-   #      writer = csv.writer(csv_file)
-   #      for key, value in meanScores.items():
-   #         writer.writerow([key, value])
-   # # WRITE ALL SCORES TO FILE
-   #  with open(scores_path, 'w') as csv_file:
-   #      writer = csv.writer(csv_file)
-   #      line=['']
-   #      for key, value in all_scores[0].items():
-   #          line.append(key)
-   #      writer.writerow(line)
-   #      ind = 0
-   #      for score in all_scores:
-   #          line = []
-   #          line.append(ind)
-   #          for key, value in score.items():
-   #              line.append(value)
-   #          ind += 1
-   #          writer.writerow(line)
+    print(df.describe())

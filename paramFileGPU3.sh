@@ -8,7 +8,8 @@ nHarmonics="6"
 hopSize="50"
 voicing="True"
 stateFull="False"
-seqNumber="1"
+seqNumber="16"
+nUnits="128"
 
 ### Model params:
 filterShape1="[1,1,6]"    # Filters' shape (f, t, h)
@@ -20,4 +21,4 @@ filterShape1D="[1,1,6]"
 featureMaps1D="128"
 featureMaps2D="128"
 batchSize="500"
-nEpochs="500"
+nEpochs="100"

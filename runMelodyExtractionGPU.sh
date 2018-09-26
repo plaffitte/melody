@@ -18,9 +18,9 @@ fi
 paramfilename=$2
 cp $curdir/$paramfilename $expdir/$paramfilename
 if [ $# -eq 3 ]; then
-  python -u main_gpu.py --nOctave $nOctave --binsPerOctave $binsPerOctave --timeDepth $timeDepth --nHarmonics $nHarmonics --hopSize $hopSize --voicing $voicing --batchSize $batchSize --nEpochs $nEpochs --expName $expname --seqNumber $seqNumber --stateFull $stateFull --expDir $expdir --model $3 |& tee $expdir/out.log
+  python -u main_gpu.py --nOctave $nOctave --binsPerOctave $binsPerOctave --timeDepth $timeDepth --nHarmonics $nHarmonics --hopSize $hopSize --voicing $voicing --batchSize $batchSize --nEpochs $nEpochs --expName $expname --seqNumber $seqNumber --stateFull $stateFull --nUnits $nUnits --expDir $expdir --model $3 |& tee $expdir/out.log
 elif [ $# -eq 4 ]; then
-  python -u main_gpu.py --nOctave $nOctave --binsPerOctave $binsPerOctave --timeDepth $timeDepth --nHarmonics $nHarmonics --hopSize $hopSize --voicing $voicing --batchSize $batchSize --nEpochs $nEpochs --expName $expname --seqNumber $seqNumber --stateFull $stateFull--expDir $expdir --modelCnn $3 --modelRnn $4 |& tee $expdir"/out.log"
+  python -u main_gpu.py --nOctave $nOctave --binsPerOctave $binsPerOctave --timeDepth $timeDepth --nHarmonics $nHarmonics --hopSize $hopSize --voicing $voicing --batchSize $batchSize --nEpochs $nEpochs --expName $expname --seqNumber $seqNumber --stateFull $stateFull --nUnits $nUnits --expDir $expdir --modelCnn $3 --modelRnn $4 |& tee $expdir"/out.log"
 else
-  python -u main_gpu.py --nOctave $nOctave --binsPerOctave $binsPerOctave --timeDepth $timeDepth --nHarmonics $nHarmonics --hopSize $hopSize --voicing $voicing --batchSize $batchSize --nEpochs $nEpochs --expName $expname --seqNumber $seqNumber --stateFull $stateFull --expDir $expdir |& tee $expdir"/out.log"
+  python -u main_gpu.py --nOctave $nOctave --binsPerOctave $binsPerOctave --timeDepth $timeDepth --nHarmonics $nHarmonics --hopSize $hopSize --voicing $voicing --batchSize $batchSize --nEpochs $nEpochs --expName $expname --seqNumber $seqNumber --stateFull $stateFull --nUnits $nUnits --expDir $expdir |& tee $expdir"/out.log"
 fi

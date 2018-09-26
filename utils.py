@@ -14,18 +14,18 @@ def log(msg, var=None):
 def binarize(preds):
     ''' Make matrix binary along first axis
     '''
-    shape = preds.shape
-    binaryPred = np.zeros((shape))
-    print("Shape:", shape)
-    if len(shape)==3:
-        for i in range(shape[0]):
-            ind = np.arange(0, shape[1], 1)
-            binaryPred[i, ind, np.argmax(preds[i], 1)] = 1
-            # binaryPred[i, ind, np.argmax(preds[i, :, 1:], 1)+1] = 1
-    elif len(shape)==2:
+    if isinstance(preds, list):
+        binaryPred = []
+        for pred in preds:
+            shape = pred.shape
+            binaryPred.append([None])
+            binaryPred[-1] = np.zeros((shape))
+            ind = np.arange(0, shape[0], 1)
+            binaryPred[-1][ind, np.argmax(pred, 1)] = 1
+    elif len(preds.shape)==2:
         ind = np.arange(0, shape[0], 1)
         binaryPred[ind, np.argmax(preds, 1)] = 1
-    elif len(shape)==1:
+    elif len(preds.shape)==1:
         if any(preds):
             binaryPred[np.argmax(preds)] = 1
 

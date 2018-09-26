@@ -1,26 +1,19 @@
-# import keras
-# from keras.models import Sequential, Model
-# from keras.layers import Dense, Dropout, Conv2D, advanced_activations, pooling, Flatten
-import os, os.path, glob, sys
-import matplotlib.pyplot as plt
-import scipy.io.wavfile as wav
-import numpy as np
+import os, sys, pandas, glob, re, csv
+from data_creation import DataSet, createAnnotation, readAnnotation, getLabels, load_model, getLabelMatrix
 import medleydb as mdb
-from random import shuffle
-from utils import binarize, generateDummy, log
-from model import model
-# os.environ["CUDA_VISIBLE_DEVICES"] = ""
+import numpy as np
+import matplotlib.pyplot as plt
+from utils import log
 import keras
-from keras.layers import Input, Dense, Activation, Conv2D, Conv3D, Reshape, Lambda, RNN, LSTM, Flatten, TimeDistributed, GRU, SimpleRNN
-from keras.models import Sequential, Model
-from keras.layers import advanced_activations, pooling, Dropout
-from keras.layers.normalization import BatchNormalization
-from keras import backend as K
-from keras.datasets import mnist
-from keras.optimizers import RMSprop
+import librosa
+import mir_eval
+from model import model
+from evaluation import plotScores, writeScores
+from evaluation import get_time_grid, get_freq_grid, pitch_activations_to_melody, calculate_metrics, writeScores
 
-### ---------------------------------------------------------------------------------------------------------
-### ---------------------------------------------------------------------------------------------------------
+#######################################################################################################################################################################################################################
+'''                                             MODEL TEST
+ '''
 # N = 10000 # size of dataset
 # S = 128 # batch size
 # nEpochs = 10
@@ -93,24 +86,10 @@ from keras.optimizers import RMSprop
 # model.fit_generator(dataGenerator, steps_per_epoch=steps , epochs=nEpochs)
 #
 # print model.summary()
-#
-### ---------------------------------------------------------------------------------------------------------
-### ---------------------------------------------------------------------------------------------------------
 
-# # fs, audio = wav.read('/u/anasynth/laffitte/MedleyDB/Audio/AClassicEducation_NightOwl/AClassicEducation_NightOwl_MIX.wav')
-# # i = 2000
-# # fig, ax = plt.subplots(1)
-# # ax.plot(np.linspace(0, 100*i-1, 100*i), audio[0:100*i,0])
-# # # ax.plot(np.linspace(0, 3*i-1, 3*i), audio[0:3*i,0], c='b')
-# # # ax.plot(np.linspace(3*i, 5*i-1, 2*i), audio[3*i:5*i,0], c='r')
-# # # ax.plot(np.linspace(5*i, 9*i-1, 4*i), audio[5*i:9*i,0], c='b')
-# # # ax.plot(np.linspace(9*i, 11*i-1, 2*i), audio[9*i:11*i,0], c='r')
-# # # ax.plot(np.linspace(11*i, 19*i-1, 8*i), audio[11*i:19*i,0], c='b')
-# # ax.set_ylim([-20000,20000])
-# # plt.show()
-#
-### ---------------------------------------------------------------------------------------------------------
-### ---------------------------------------------------------------------------------------------------------
+#######################################################################################################################################################################################################################
+'''                                     GENERATOR Test
+'''
 
 # class fake(object):
 #
@@ -149,71 +128,17 @@ from keras.optimizers import RMSprop
 # # if __name__=="__main__":
 # #     print("Running generator test program")
 # #     generator_test()
-
-### ---------------------------------------------------------------------------------------------------------
-### ---------------------------------------------------------------------------------------------------------
-
-# def predictOnBatch(ind):
-#     dataBatch = np.zeros((1,1024,72,10,6))
-#     for k in range(1024):
-#         if ind*1024+10*k+10 <= dataBlock.shape[2]:
-#             dataBatch[0,k,:,:,:]=dataBlock[:,:,ind*1024+10*k:ind*1024+10*k+10].transpose(1,2,0)
-#
-#     plt.subplot(3,1,1)
-#     plt.imshow(dataBatch[0,:,:,0,0].T, aspect='auto')
-#     pred = model.predict(dataBatch)
-#     return pred
-#
-# modelPath='/data/Experiments/1D-VOICING/weights.49-0.64.hdf5'
-# model=keras.models.load_model(modelPath)
-# dataPath='/data/Experiments/1D-VOICING/features/'
-# dataFile=os.listdir(dataPath)
-# targetPath='/data/Experiments/1D-VOICING/targets/'
-# targetFile=os.listdir(targetPath)
-# targetFile=sorted(targetFile)
-# dataFile=sorted(dataFile)
-# print "File Name:", dataFile[1]
-# dataBlock=np.load(os.path.join(dataPath,dataFile[1]))
-# labelBlock=np.load(os.path.join(targetPath,targetFile[1]))
-#
-# plt.imshow(labelBlock, aspect='auto')
-# plt.show()
-#
-# N = 10
-# for i in range(N):
-#     pred = predictOnBatch(i)
-#     plt.subplot(3,1,2)
-#     plt.imshow(labelBlock[:,i*1024:i*1024+1024],aspect='auto')
-#     plt.subplot(3,1,3)
-#     plt.imshow(pred[0].T,aspect='auto')
-#     plt.show()
-
-# # define our time-distributed setup
-# inp = Input(shape=(8, 28, 28, 1))
-# x = TimeDistributed(Conv2D(8, (4, 4), padding='valid', activation='relu'))(inp)
-# x = TimeDistributed(Conv2D(16, (4, 4), padding='valid', activation='relu'))(x)
-# x = TimeDistributed(Flatten())(x)
-# x = GRU(units=100, return_sequences=True)(x)
-# # x = GRU(units=50, return_sequences=False)(x)
-# # x = Dropout(.2)(x)
-# # x = Dense(1)(x)
-# model = Model(inp, x)
-#
-# rmsprop = RMSprop()
-# model.compile(loss='mean_squared_error', optimizer=rmsprop)
-# print model.summary()
-
-### ---------------------------------------------------------------------------------------------------------
-### ---------------------------------------------------------------------------------------------------------
-### -------------------------------   TEST RNN MODEL WITH DUMMY DATA    -------------------------------------
+########################################################################################################################################################################################################################
+'''                             TEST RNN MODEL with DUMMY DATA
+'''
 # log('')
 # log('---> Training Statefull Model <---')
-# batchSize = 100
-# timeDepth = 20
+# batchSize = 500
+# timeDepth = 50
 # nHarmonics = 6
-# hopSize = 1
-# nEpochs = 50
-# fftSize = 72
+# hopSize = 50
+# nEpochs = 100
+# fftSize = 360
 # myModel, modelSplit = model("1D-CATEGORICAL-statefull", batchSize, fftSize, timeDepth, nHarmonics, False, True, 1, True)
 # print(myModel.summary())
 # meanTrainAccuracy = []
@@ -267,38 +192,255 @@ from keras.optimizers import RMSprop
 #             count = 0
 #     else:
 #         count += 1
+########################################################################################################################################################################################################################
+'''                             GENERATE INPUT DATA FROM GENERATOR AND COMPUTE SCORES
+                                        ON DEEP SALIENCE REPRESENTATION
+'''
+# outPath = '/u/anasynth/laffitte/test'
+# dataPath = '/u/anasynth/laffitte/test'
+# inputPath = os.path.join(dataPath, 'features')
+# targetPath = os.path.join(dataPath, 'targets')
+# modelDim="BASELINE"
+# params = {}
+# params['batchSize']=1000
+# params['stateFull']="False"
+# params['timeDepth']=50
+# params['nHarmonics']=6
+# params['hopSize']=50
+# dataobj = DataSet(inputPath, targetPath, modelDim)
+# fftSize = 360
+# binsPerOctave = 60
+# nOctave = 6
+# rnnBatch = 32
+# nHarmonics = 6
+# trainSet, validSet, testSet = dataobj.partDataset()
+# testSet = testSet[:2]
+# dataobj.getFeature(testSet, modelDim, outPath, 60, 6, nHarmonics, False)
+# # myModel=keras.models.load_model(os.path.join(outPath, 'weights.04-0.78.hdf5'))
+# train = False
+# voicing = False
+#
+# ### RETRIEVE LABELS AND INPUTS
+# labels, preds = getLabels('TOTO', dataobj, testSet, params, modelDim, voicing, fftSize, rnnBatch)
+# batchSize = int(params['batchSize'])
+# bucketList = dataobj.bucketDataset(testSet, rnnBatch)
+# predictions = []
+# targets = []
+# all_scores = []
+#
+# all_scores, melodyEstimation, _, _ = calculate_metrics(dataobj, preds, labels, preds, testSet, int(binsPerOctave), int(nOctave), outPath, batchSize, rnnBatch, thresh=0.05, voicing=False)
+# print(all_scores)
+# writeScores(all_scores, outPath)
+#
+# ### PLOT PREDS/INPUTS AND LABELS FOR EACH SONG ###
+# cmap = 'viridis'
+# for [prediction, target, song] in zip(predictions, targets, testSet):
+#     # prediction = binarize(prediction)
+#     print("song:", song)
+#     if target is not None:
+#         if np.shape(target)[0] > np.shape(target)[1]:
+#             target = target.T
+#         if np.shape(prediction)[0] > np.shape(prediction)[1]:
+#             prediction = prediction.T
+#         if isinstance(song, list):
+#             song = song[0]
+#         # fig, (ax1, ax2, ax3) = plt.subplots(3,1)
+#         fig, (ax1, ax2) = plt.subplots(2,1)
+#         ax1.imshow(prediction, aspect='auto', cmap=cmap, vmax=1, vmin=0, origin='lower')
+#         ax1.set_title('INPUTS')
+#         ax2.imshow(target, interpolation='nearest', aspect='auto', cmap=cmap, vmax=1, vmin=0, origin='lower')
+#         ax2.set_title('TARGETS')
+#         plt.savefig(os.path.join(outPath, song+'_result_melody1.png'))
+#         plt.close()
+########################################################################################################################################################################################################################
+'''                         COMPUTE SCORES for AClassicEducation_NightOwl
+                        directly with DEEPSALIENCEREPRESENTATION via RACHEL's CODE
+'''
+# binsPerOctave = 60
+# nOctave = 6
+# HOP_LENGTH = 256
+# Fs = 22050
+# FMIN = 32.7
+# voicing = False
+# thresh = 0.05
+# ### LOAD INPUT FEATURES AS NUMPY ARRAY ###
+# inputFile = '/data/anasynth_nonbp/laffitte/Experiments/deepSalienceRepresentations/features/AClassicEducation_NightOwl_mel2_input.npy'
+# inputs = np.load(inputFile)
+# idx = np.array(np.arange(0,inputs.shape[-1],44100/Fs), dtype='int32')
+# inputs = inputs[:,:,idx]
+#
+# ### CREATE TARGET FROM CSV ANNOTATIONS ###
+# annotFile = '/data2/anasynth_nonbp/laffitte/MedleyDB/Annotations/Melody_Annotations/MELODY2/AClassicEducation_NightOwl_MELODY2.csv'
+# targetFile = pandas.read_csv(annotFile, sep=',')
+# data = readAnnotation(annotFile)
+# annot = np.asarray(np.array(data).T[0])
+# annot.reshape((np.shape(annot)[0], np.shape(annot)[1]))
+# times = annot[:,0]
+# freqs = annot[:,1]
+# freq_grid = librosa.cqt_frequencies(binsPerOctave*nOctave, FMIN, bins_per_octave=binsPerOctave)
+# length = int(np.floor(len(times)*(Fs/44100)))
+# time_grid = librosa.core.frames_to_time(range(int(length)), sr=Fs, hop_length=HOP_LENGTH)
+# target = createAnnotation(freq_grid, time_grid, times, freqs)
+#
+# ### GET PREDICTIONS ###
+# input_hcqt = inputs.transpose(1, 2, 0)[np.newaxis, :, :, :]
+# n_t = input_hcqt.shape[2]
+# n_slices = 200
+# t_slices = list(np.arange(0, n_t, n_slices))
+# output_list = []
+# deepModel = load_model('melody2')
+# for i, t in enumerate(t_slices):
+#     prediction = deepModel.predict(input_hcqt[:, :, t:t+n_slices, :], verbose=0)
+#     output_list.append(prediction[0, :, :])
+# predicted_output = np.hstack(output_list)
+# pred = predicted_output.T
+#
+# ## COMPUTE SCORES ###
+# scores = calculate_metrics(None, [pred[:14000,:]], [target.T[:14000,:]], [inputs[:,:14000]], ['AClassicEducation_NightOwl'], binsPerOctave, nOctave, '/u/anasynth/laffitte/test/1', 1000, 16, thresh=0.05, voicing=True)
+# print(scores)
+########################################################################################################################################################################################################################
+'''                                     COMPARE BINARY TARGET WITH ANNOTATION
+'''
+# binsPerOctave = 60
+# nOctave = 6
+# HOP_LENGTH = 256
+# Fs = 22050
+# FMIN = 32.7
+# voicing = False
+# thresh = 0.38
+#
+# ### Create TARGET from CSV ANNOTATIONS ###
+# annotFile = '/data2/anasynth_nonbp/laffitte/MedleyDB/Annotations/Melody_Annotations/MELODY2/Auctioneer_OurFutureFaces_MELODY2.csv'
+# targetFile = pandas.read_csv(annotFile, sep=',')
+# data = readAnnotation(annotFile)
+# annot = np.asarray(np.array(data).T[0])
+# annot.reshape((np.shape(annot)[0], np.shape(annot)[1]))
+# times = annot[:,0]
+# freqs = annot[:,1]
+# freq_grid = librosa.cqt_frequencies(
+#     binsPerOctave*nOctave, FMIN, bins_per_octave=binsPerOctave
+#     )
+# length = int(np.floor(len(times)*(Fs/44100)))
+# time_grid = librosa.core.frames_to_time(
+#     range(int(length)), sr=Fs, hop_length=HOP_LENGTH
+# )
+# target = createAnnotation(freq_grid, time_grid, times, freqs)
+#
+# ### Re-Create ANNOTATION MELODY from TARGET
+# ref_times = get_time_grid(binsPerOctave, nOctave, len(target), Fs, 256)
+# ref_freqs = pitch_activations_to_melody(
+# target.T, binsPerOctave, nOctave, thresh=thresh, voicing=voicing, mod=False
+# )
+#
+# idx = np.array(np.arange(0,len(ref_freqs)*2,44100/Fs), dtype='int32')
+# plt.plot(freqs[idx]-ref_freqs)
+# plt.show()
+# plt.close()
+ ######################################################################################################################################################################################################################
+'''                              TEST INPUT FORMATTING, ENCODING AND DECODING
+                                by visualizing Data directly after formatting
+'''
+# if os.path.isdir('/data2/anasynth_nonbp/laffitte'):
+#     audioPath = '/data2/anasynth_nonbp/laffitte/MedleyDB/Audio/'
+#     annotPath = '/data2/anasynth_nonbp/laffitte/MedleyDB/Annotations/Melody_Annotations/MELODY2'
+# else:
+#     annotPath = '/net/as-sdb/data/mir2/MedleyDB/Annotations/Melody_Annotations/MELODY2'
+#     audioPath = '/net/as-sdb/data/mir2/MedleyDB/Audio/'
+# targetDim = "BASELINE"
+# batchSize = 1000
+# stateFull = "False"
+# fftSize = 360
+# binsPerOctave = 60
+# nOctave = 6
+# rnnBatch = 5
+# nHarmonics = 6
+# voicing = False
+# timeDepth = 50
+# Fs = 22050
+# hopSize = 50
+# stateFull = True if stateFull=="True" else False
+# params = {}
+# params['batchSize']= batchSize
+# params['stateFull']= stateFull
+# params['timeDepth']= timeDepth
+# params['nHarmonics']= nHarmonics
+# params['hopSize']= hopSize
+# realTestSet = []
+# outPath = '/u/anasynth/laffitte/test/outputs'
+# path = '/u/anasynth/laffitte/test'
+# if not os.path.isdir(outPath):
+#     os.mkdir(outPath)
+# inputPath = os.path.join(path, 'features')
+# targetPath = os.path.join(path, 'targets')
+# dataObj = DataSet(inputPath, targetPath, targetDim)
+# trainSet, validSet, testSet = dataObj.partDataset()
+# testSet = testSet[0:9]
+# dirList = sorted(os.listdir(audioPath))
+# dirList = [i for i in dirList if '.' not in i]
+# for j in dirList:
+#     fileList = sorted(os.listdir(os.path.join(audioPath, j)))
+#     fileList = [k[:-8] for k in fileList if re.match('[^._].*?.wav', k)]
+#     tracks = [tr for tr in fileList if tr in testSet]
+#     for i in tracks:
+#         annotFile = os.path.join(annotPath, i+'_MELODY2.csv')
+#         if annotFile is not None and os.path.exists(annotFile):
+#             realTestSet.extend(tracks)
+# dataObj.getFeature(realTestSet, targetDim, path, 60, 6, nHarmonics, False)
+# labels, inputs, trackList = getLabels('TOTO', dataObj, realTestSet, params, targetDim, voicing, fftSize, rnnBatch)
+# labels, inputs, trackList = getLabelMatrix('TOTO', dataObj, realTestSet, params, targetDim, voicing, fftSize, rnnBatch)
+# inp = []
+# predictions = []
+# targets = []
+# offset = 0
+# bucketList = dataObj.bucketDataset(trackList, rnnBatch)
+# for (b, subTracks) in enumerate(bucketList):
+#     L, longest = dataObj.findLongest(subTracks[0])
+#     nSequences = int(np.floor(L/batchSize))
+#     for s, song in enumerate(sorted(subTracks[0])):
+#         inp.append(None)
+#         predictions.append(None)
+#         targets.append(None)
+#         for k in np.arange(s, nSequences*rnnBatch, rnnBatch):
+#             pred = inputs[offset + k]
+#             truth = labels[offset + k]
+#             curInput = inputs[offset + k]
+#             if truth is not None and np.array(truth.nonzero()).any():
+#                 # mask = np.where(truth==-1)
+#                 # if any(mask[1]):
+#                 #     curInput = curInput[0:mask[0][0],:]
+#                 #     truth = truth[0:mask[0][0],:]
+#                 #     pred = pred[0:mask[0][0],:]
+#                 if truth.any():
+#                     if inp[-1] is None:
+#                         inp[-1] = curInput
+#                         predictions[-1] = pred
+#                         targets[-1] = truth
+#                     else:
+#                         inp[-1] = np.concatenate((inp[-1], curInput))
+#                         predictions[-1] = np.concatenate((predictions[-1], pred))
+#                         targets[-1] = np.concatenate((targets[-1], truth))
+#         j = glob.glob(os.path.join(targetPath, '{}_mel2_target.npy'.format(song)))
+#         if j:
+#             curTarget = np.load(j[0])
+#         fig, (ax1, ax2) = plt.subplots(2,1)
+#         ax1.imshow(curTarget, aspect='auto', origin='lower')
+#         ax2.imshow(targets[-1].T, aspect='auto', origin='lower')
+#         plt.savefig(os.path.join(path, song))
+#         plt.close()
+#     offset += k+1
 
-### ---------------------------------------------------------------------------------------------------------
-### ----------------------------------------------------------------------------------------------------------
-from predict_on_audio import load_model
-import matplotlib.pyplot as plt
-path = '/data3/Data/360*60/features'
-files = os.listdir(path)
-data = np.load(os.path.join(path,files[0]))
-print "Shape of data:", data.shape
-length = data.shape[-1]
-timeDepth = 50
-fftSize = 360
-batchSize = 10
-nharmonics = 6
-L = length/timeDepth
-N = L/batchSize
-deepModel = load_model('melody2')
-out = None
-for i in range(N):
-    batch = np.zeros((batchSize, timeDepth, fftSize, nharmonics))
-    for ii in range(batchSize):
-        batch[ii] = data[:,:,ii*timeDepth:ii*timeDepth + timeDepth].transpose(2,1,0)
-    if out is None:
-        out = deepModel.predict(batch)
-    else:
-        out = np.concatenate((out, deepModel.predict(batch)))
-print "Shape of output:", out.shape
-pred = None
-for k in range(out.shape[0]):
-    if pred is None:
-        pred = out[k]
-    else:
-        pred = np.concatenate((pred, out[k]))
-plt.imshow(pred.T, aspect='auto')
-plt.show()
+# mysong = labels
+# inp = inputs
+# scores, _, _, _ = calculate_metrics(dataObj, inp, mysong, inp, trackList, binsPerOctave, nOctave, '/u/anasynth/laffitte/test/', batchSize, rnnBatch, thresh=0.05, voicing=True)
+# print(scores)
+# writeScores(scores, outPath)
+
+ ######################################################################################################################################################################################################################
+'''                              COMPUTE SCORES ON PREDICTIONS
+'''
+
+preds = np.load('')
+inp = np.load('')
+mysong = np.load('')
+
+scores,_,_,_ = calculate_metrics(dataObj, preds, mysong, inp, trackList, binsPerOctave, nOctave, '/u/anasynth/laffitte/test/', batchSize, rnnBatch, thresh=0.05, voicing=True)

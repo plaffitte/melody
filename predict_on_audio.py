@@ -141,7 +141,7 @@ def load_model(task):
     if task not in TASKS:
         raise ValueError("task must be one of {}".format(TASKS))
 
-    weights_path = os.path.join('weights', '{}.h5'.format(task))
+    weights_path = os.path.join('/u/anasynth/laffitte/Code/ismir2017-deepsalience/predict/weights', '{}.h5'.format(task))
     if not os.path.exists(weights_path):
         raise IOError(
             "Cannot find weights path {} for this task.".format(weights_path))

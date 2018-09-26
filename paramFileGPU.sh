@@ -1,14 +1,15 @@
 ### -------------------->>> PARAM DEFINTION <<<-------------------- ###
 ### Data Params:
 # fftSize="360"
-binsPerOctave="12"
+binsPerOctave="60"
 nOctave="6"
-timeDepth="25"
+timeDepth="50"
 nHarmonics="6"
-hopSize="1"
+hopSize="50"
 voicing="True"
-stateFull="True"
-seqNumber="10"
+stateFull="False"
+seqNumber="4"
+nUnits="128"
 
 ### Model params:
 filterShape1="[1,1,6]"    # Filters' shape (f, t, h)
@@ -19,5 +20,5 @@ filterShape2D="[5,5,2]"
 filterShape1D="[1,1,6]"
 featureMaps1D="128"
 featureMaps2D="128"
-batchSize="50"
-nEpochs="500"
+batchSize="500"
+nEpochs="100"

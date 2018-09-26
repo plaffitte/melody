@@ -10,7 +10,7 @@ def get_dfbox(metrics, path):
     # df_melodia = pd.DataFrame.from_csv("../outputs/Melodia_scores.csv")
     # df_bosch = pd.DataFrame.from_csv("../outputs/juanjo_mdb_scores.csv")
     # df_cnn = pd.DataFrame.from_csv("~/Code/ismir2017-deepsalience/outputs/CNNmel2_argmax_scores.csv")
-    df_piero = pd.DataFrame.from_csv(os.path.join(path, "_all_scores.csv"))
+    df_piero = pd.DataFrame.from_csv(os.path.join(path, "all_scores.csv"))
     boxdata = []
     for metric in metrics:
         boxdata.extend([
