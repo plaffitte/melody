@@ -8,7 +8,7 @@ nHarmonics="6"
 hopSize="50"
 voicing="True"
 stateFull="False"
-seqNumber="4"
+seqNumber="2"
 nUnits="128"
 
 ### Model params:

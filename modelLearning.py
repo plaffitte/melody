@@ -21,7 +21,7 @@ def bkld(y_true, y_pred):
         -1.0*y_true* K.log(y_pred) - (1.0 - y_true) * K.log(1.0 - y_pred),
         axis=-1), axis=-1)
 
-def trainModel(params, dataobj, trainSet, validSet, modelDim, outPath, nUnits, voicing, fftSize, rnnBatch):
+def trainModel(params, dataobj, trainSet, validSet, modelDim, outPath, nUnits, fftSize, rnnBatch):
     K.set_learning_phase(1)
     log('')
     log('---> Training Model <---')
@@ -34,7 +34,7 @@ def trainModel(params, dataobj, trainSet, validSet, modelDim, outPath, nUnits, v
     nOctave = int(params['nOctave'])
     log("Number of Epochs: ", nEpochs)
     stateFull = True if params['stateFull']=="True" else False
-    myModel, modelSplit = model(modelDim, batchSize, fftSize, timeDepth, nHarmonics, nUnits, False, stateFull, rnnBatch)
+    myModel, modelSplit = model(modelDim, batchSize, fftSize, timeDepth, nHarmonics, nUnits, stateFull, rnnBatch)
     print(myModel.summary())
     log("Is Statefull: ", stateFull)
     nData, trainSteps, _ = dataobj.sizeDataset(trainSet, batchSize, rnnBatch)
@@ -45,8 +45,8 @@ def trainModel(params, dataobj, trainSet, validSet, modelDim, outPath, nUnits, v
     log("Size of Dataset in samples: ", nData)
     nData = nData*fftSize*nHarmonics
     log("Data to Parameters ratio (DPR):", float(nData) / nParams)
-    dataGenerator = dataobj.formatDataset(myModel, trainSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, binsPerOctave, nOctave, voicing, rnnBatch, stateFull)
-    validationGenerator = dataobj.formatDataset(myModel, validSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, binsPerOctave, nOctave, voicing, rnnBatch, stateFull)
+    dataGenerator = dataobj.formatDataset(myModel, trainSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, binsPerOctave, nOctave, rnnBatch, stateFull)
+    validationGenerator = dataobj.formatDataset(myModel, validSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, binsPerOctave, nOctave, rnnBatch, stateFull)
     filepath = os.path.join(outPath, "weights.{epoch:02d}-{loss:.2f}.hdf5")
     # if "MULTILABEL" not in modelDim:
     myModel.fit_generator(
@@ -59,18 +59,16 @@ def trainModel(params, dataobj, trainSet, validSet, modelDim, outPath, nUnits, v
         keras.callbacks.ModelCheckpoint(filepath, save_best_only=True, verbose=1),
         keras.callbacks.ReduceLROnPlateau(patience=10),
         # testModelCb,
-        keras.callbacks.EarlyStopping(patience=20, mode='min'),
+        keras.callbacks.EarlyStopping(patience=15, mode='min'),
         # plot_losses
         ],
         verbose = 2,
         shuffle = False
         )
-    # else:
-    #     for e in range(nEpochs):
-    #         myModel.fit()
     return myModel, modelSplit
 
-def test(train, myModel, dataobj, testSet, params, modelDim, targetPath, voicing, fftSize, rnnBatch):
+def test(train, myModel, dataobj, testSet, params, modelDim, targetPath, fftSize, rnnBatch):
+    K.set_learning_phase(0)
     log('')
     log('---> Testing Model <---')
     cmap = 'hot'
@@ -85,14 +83,37 @@ def test(train, myModel, dataobj, testSet, params, modelDim, targetPath, voicing
     log("Is Statefull: ", stateFull)
     if not train:
         myModel.summary()
-    predictGenerator = dataobj.formatDataset(myModel, testSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, binsPerOctave, nOctave, voicing, rnnBatch=rnnBatch, stateFull=stateFull)
-    nData, testStep, nSongs = dataobj.sizeDataset(testSet, batchSize, rnnBatch)
-
-    ### Use predict_generator function to deal with the data itself
-    preds = myModel.predict_generator(predictGenerator, steps=testStep, verbose=1)
-    labs, inputs, trackList = getLabelMatrix(myModel, dataobj, testSet, params, modelDim, voicing, fftSize, rnnBatch)
-
-    return preds, labs, inputs, trackList
+    if stateFull or "1D" in modelDim: ### USE DATA GENERATOR ###
+        predictGenerator = dataobj.formatDataset(myModel, testSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, binsPerOctave, nOctave, rnnBatch=rnnBatch, stateFull=stateFull)
+        nData, testStep, nSongs = dataobj.sizeDataset(testSet, batchSize, rnnBatch)
+        preds = myModel.predict_generator(predictGenerator, steps=testStep, verbose=1)
+        if "MULTILABEL" in modelDim:
+            labNote, labOctave, inputs, trackList = getLabelMatrix(myModel, dataobj, testSet, params, modelDim, fftSize, rnnBatch)
+        else:
+            labs, inputs, trackList = getLabelMatrix(myModel, dataobj, testSet, params, modelDim, fftSize, rnnBatch)
+        if "MULTILABEL" in modelDim:
+            return preds, labNote, labOctave, inputs, trackList
+        else:
+            return preds, labs, inputs, trackList
+    else:
+        ### GET PREDICTIONS SONG BY SONG ###
+        preds = []
+        labs = []
+        inputs = []
+        for track in testSet:
+            path = glob.glob(os.path.join(dataobj.inputPath, '{}_mel2_input.npy'.format(track)))
+            curInput = np.load(path[0])
+            if "BASELINE" in modelDim or "MULTILABEL" in modelDim:
+                curInput = curInput.transpose(1, 2, 0)[None,:,:,:]
+                curInput = dataobj.deepModel.predict(curInput)
+            pred = myModel.predict(curInput[0,:,:].transpose(1,0), batch_size=rnnBatch)
+            path = glob.glob(os.path.join(dataobj.targetPath, '{}_mel2_target.npy'.format(track)))
+            curTarget = np.load(path[0])
+            preds.append(pred)
+            labs.append(curTarget)
+            inputs.append(curInput)
+        ### Return PREDICTIONS, INPUTS,TARGETS and List of Tracks
+        return preds, labs, inputs, testSet
 
 def testDummyData(train, myModel, dataobj, testSet, params, modelDim, targetPath, voicing, fftSize, rnnBatch):
     batchSize = int(params['batchSize'])
@@ -106,105 +127,6 @@ def testDummyData(train, myModel, dataobj, testSet, params, modelDim, targetPath
 
     return preds
 
-def testCNN(train, myModel, dataset, testSet, params, modelDim, targetPath, plotTargets, voicing, fftSize):
-    log('')
-    log('---> Testing Model <---')
-    if not train:
-        locals().update(params)
-        log(myModel.summary())
-    _, _, lenTest = dataset.sizeDataset(testSet, int(timeDepth), int(batchSize), int(hopSize), modelDim)
-    labs = []
-    realTestSet = []
-    cnnOut = []
-    for k in range(lenTest):
-        if isinstance(testSet[k], basestring):
-            song = [testSet[k]]
-        j = glob.glob(os.path.join(targetPath, '{}_mel1_output.npy'.format(song[0])))
-        if any(j):
-            realTestSet.append(song)
-            if os.path.exists(j[0]):
-                predictGenerator = dataset.formatDataset(song, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, voicing=voicing)
-                nSamples, size, length = dataset.sizeDataset(song, int(timeDepth), int(batchSize), int(hopSize), modelDim)
-                if nSamples != 0:
-                    labels = None
-                    cnnPred = None
-                    inputData = None
-                    log("predicting on:"+str(song))
-                    log("Size of song in blocks/samples:"+str(size)+'/'+str(nSamples))
-                    for l in range(size):
-                        one, two = predictGenerator.__next__()
-                        ### PREDICT WITH CNN
-                        out = myModel.predict_on_batch(one)
-                        # out = binarize(out)
-                        if inputData is None:
-                            inputData = one[:, :, 0, 0]
-                        else:
-                            inputData = np.concatenate((inputData, one[:, :, 0, 0]))
-                        ### SAVE PREDICTIONS AND LABELS TO VARIABLES ###
-                        if cnnPred is None:
-                            labels = two
-                            cnnPred = out
-                        else:
-                            labels = np.concatenate((labels, two))
-                            cnnPred = np.concatenate((cnnPred, out))
-                    ### RE-ARRANGE PREDICTIONS AND LABELS INTO CONTINUOUS MATRIX ###
-                    if modelDim=="BASELINE":
-                        toto = np.zeros((360, 1))
-                        toto3 = np.zeros((360, 1))
-                        for i in range(len(labels)):
-                            toto = np.concatenate((toto, labels[i,:,:]), 1)
-                            toto3 = np.concatenate((toto3, cnnPred[i,:,:]), 1)
-                            lim = np.min((toto.shape[-1], toto2.shape[-1])) # Cut to shortest's length
-                        labels = toto[: ,1:lim]
-                        cnnPred = toto3[: ,1:lim]
-                    labs.append(labels)
-                    cnnOut.append(cnnPred)
-
-    return cnnOut, labs, realTestSet
-
-def testDeepSalience(dataset, testSet, params, modelDim, targetPath, fftSize):
-    log('')
-    log('---> Testing Pre-Trained Deep Salience Model <---')
-    batchSize = int(params['batchSize'])
-    timeDepth = int(params['timeDepth'])
-    nHarmonics = int(params['nHarmonics'])
-    hopSize = int(params['hopSize'])
-    nEpochs = int(params['nEpochs'])
-    binsPerOctave = int(params['binsPerOctave'])
-    nOctave = int(params['nOCtave'])
-    _, _, lenTest = dataset.sizeDataset(testSet, int(timeDepth), int(batchSize), int(hopSize), int(fftSize), nHarmonics, modelDim)
-    labs = []
-    pred = []
-    realTestSet = []
-    for k in range(lenTest):
-        if isinstance(testSet[k], str):
-            song = [testSet[k]]
-        j = glob.glob(os.path.join(targetPath, '{}_mel1_output.npy'.format(song[0])))
-        if any(j):
-            realTestSet.append(song)
-            if os.path.exists(j[0]):
-                predictGenerator = dataobj.formatDataset(myModel, testSet, timeDepth, modelDim, batchSize, hopSize, fftSize, nHarmonics, binsPerOctave, nOctave, voicing, rnnBatch=rnnBatch, stateFull=stateFull)
-                nSamples, size, length = dataset.sizeDataset(song, int(timeDepth), int(batchSize), int(hopSize), int(fftSize), nHarmonics, modelDim)
-                if nSamples != 0:
-                    labels = None
-                    inputData = None
-                    log("predicting on:"+str(song))
-                    log("Size of song in blocks/samples:"+str(size)+'/'+str(nSamples))
-                    for l in range(size):
-                        one, two = predictGenerator.__next__()
-                        for k in range(two.shape[0]):
-                            limit = l*two.shape[1]*two.shape[0]+two.shape[1]*k
-                            if limit <= nSamples:
-                                if inputData is None:
-                                    inputData = one[k,:,:]
-                                    labels = two[k,:,:]
-                                else:
-                                    labels = np.concatenate((labels, two[k,:,:]))
-                                    inputData = np.concatenate((inputData, one[k,:,:]), 1)
-                    labs.append(labels)
-                    pred.append(inputData.T)
-    return pred, labs, realTestSet, None
-
 def zeroPad(data, maxLen, dim):
     shape = np.shape(data)
     newShape = shape
@@ -212,7 +134,8 @@ def zeroPad(data, maxLen, dim):
     zeroVec = np.zeros((newShape))
     return np.concatenate((data, zeroVec), dim)
 
-############################################# SOME CALLBACKS ###############################################
+################################# SOME CALLBACKS #####################################
+
 class testModel(keras.callbacks.LambdaCallback):
     def __init__(self, model, iterator, steps, path, timeDepth, modelDim, fftSize):
         self.iterator = iterator

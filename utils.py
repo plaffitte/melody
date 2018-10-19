@@ -23,8 +23,10 @@ def binarize(preds):
             ind = np.arange(0, shape[0], 1)
             binaryPred[-1][ind, np.argmax(pred, 1)] = 1
     elif len(preds.shape)==2:
-        ind = np.arange(0, shape[0], 1)
-        binaryPred[ind, np.argmax(preds, 1)] = 1
+        binaryPred = np.zeros_like(preds)
+        ind1 = np.arange(0, preds.shape[0], 1, dtype=int)
+        ind2 = np.array(np.argmax(preds, 1), dtype=int)
+        binaryPred[ind1, ind2] = 1
     elif len(preds.shape)==1:
         if any(preds):
             binaryPred[np.argmax(preds)] = 1

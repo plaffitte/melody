@@ -24,6 +24,7 @@ HOP_LENGTH = 256
 Fs = 22050#44100#22050
 HARMONICS = [0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 TASK = "MELODY2"
+NCLASSES = 72
 
 class DataSet(object):
 
@@ -33,10 +34,10 @@ class DataSet(object):
         self.mtracks = mdb.load_all_multitracks(dataset_version = 'V1')
         self.trackList = mdb.TRACK_LIST_V1
         self.longest = 0
-        if "rachel" in targetDim or "BASELINE" in targetDim:
+        if "rachel" in targetDim or "BASELINE" in targetDim or "MULTILABEL" in targetDim:
             self.deepModel = load_model('melody2')
             self.deepModel.predict(np.zeros((2,360,50,6))) # Test/Initialize ?
-            print(self.deepModel.summary())
+            # print(self.deepModel.summary())
 
     ### ---------------- CREATE DATASET OF FEATURES FROM AUDIO ---------------- ###
     def getFeature(self, dataSet, modelDim, outPath, binsPerOctave, nOctave, nHarmonics=1, homemade=False):
@@ -78,7 +79,7 @@ class DataSet(object):
                                 for k in range(nHarmonics): # loop over number of harmonics desired
                                     H.append(dsp.cqt(signal, Fs, fmin=(k+1)*FMIN, n_bins=binsPerOctave*nOctave, bins_per_octave=binsPerOctave, filter_scale=0.9, hop_length=HOP_LENGTH))
                             else: # use rachel's feature extraction
-                                H = computeHcqt(audioFile, nHarmonics, binsPerOctave, nOctave)
+                                H = computeHcqt(audioFile, nHarmonics, 60, 360)
                             np.save(inFile, H.astype(np.float32))
                         if not os.path.exists(outFile):
                             ### Get labels
@@ -88,13 +89,13 @@ class DataSet(object):
                             times = annot[:,0]
                             freqs = annot[:,1]
                             freq_grid = librosa.cqt_frequencies(
-                                binsPerOctave*nOctave, FMIN, bins_per_octave=binsPerOctave
+                                NCLASSES, FMIN, bins_per_octave=NCLASSES/nOctave
                                 )
                             length = int(np.floor(len(times)*(Fs/44100)))
                             time_grid = librosa.core.frames_to_time(
                                 range(int(length)), sr=Fs, hop_length=HOP_LENGTH
                             )
-                            target = createAnnotation(freq_grid, time_grid, times, freqs)
+                            target = createAnnotation(freq_grid[:-1], time_grid, times, freqs)
                             np.save(outFile, target.astype(np.float32))
                 self.trackList.append(i.replace('_MIX.wav', '')) # Add current track to track list
                 self.inputPath = featPath # Set feature path
@@ -110,7 +111,6 @@ class DataSet(object):
         testSet = data_splits['test']
         trainSet = data_splits['train']
         validSet = data_splits['validation']
-        # restSet = [tr for tr in self.trackList if tr not in testSet]
         ### GET TRAIN AND VALID DATASET FROM THE REST OF MedleyDB DATASET
         # trainSet, validSet = sklearn.model_selection.train_test_split(restSet, train_size=0.70)
         return trainSet, validSet, testSet
@@ -166,7 +166,7 @@ class DataSet(object):
 
         return bucketList
 
-    def formatDataset(self, myModel, dataset, timeDepth, targetDim, batchSize, hopSize, fftSize, nHarmonics, binsPerOctave, nOctave, voicing=False, rnnBatch=16, stateFull=True):
+    def formatDataset(self, myModel, dataset, timeDepth, targetDim, batchSize, hopSize, fftSize, nHarmonics, binsPerOctave, nOctave, rnnBatch=16, stateFull=True):
 
         self.mtracks = mdb.load_all_multitracks(dataset_version = 'V1')
         tracks = [tr.track_id for tr in self.mtracks if tr.track_id in self.trackList]
@@ -176,27 +176,24 @@ class DataSet(object):
             bucketList = self.bucketDataset(tracks, rnnBatch)
             for (s, subTracks) in enumerate(bucketList):
                 if stateFull:
-                    log("Resetting model's states")
+                    # log("Resetting model's states")
                     myModel.reset_states()
                 if "SOFTMAX" in targetDim or "CATEGORICAL" in targetDim:
                     binary = True
                     voicing = True
                 longest, _ = self.findLongest(subTracks[0])
                 nSequences = int(np.floor(longest/batchSize))
-                if voicing: # get size of longest track and set it as number of nBatches
-                    nOuts = fftSize+1
-                else:
-                    nOuts = fftSize
+                nOuts = NCLASSES
                 offset = 0
                 for b in range(nSequences): # Iterate over total number of batches and fill them up 1-b-1
-                    if "BASELINE" in targetDim or "MULTILABEL" in targetDim:
+                    if "BASELINE" in targetDim or "MULTILABEL" in targetDim or "RNN" in targetDim:
                         inputs = -1 * np.ones((rnnBatch, batchSize, fftSize))
                     else:
                         inputs = -1 * np.ones((rnnBatch, batchSize, fftSize, timeDepth, nHarmonics))
-                    if "1D" in targetDim or "SOFTMAX" in targetDim or "BASELINE" in targetDim:
-                        targets = -1 * np.ones((rnnBatch, batchSize, nOuts))
+                    if "1D" in targetDim or "SOFTMAX" in targetDim or "BASELINE" in targetDim or "RNN" in targetDim:
+                        targets = 0 * np.ones((rnnBatch, batchSize, nOuts))
                     elif "2D" in targetDim:
-                        targets = -1 * np.ones((rnnBatch, batchSize, nOuts, timeDepth))
+                        targets = 0 * np.ones((rnnBatch, batchSize, nOuts, timeDepth))
                     elif "MULTILABEL" in targetDim: ### USING SEPARATE LABEL FOR PITCH AND OCTAVE DETECTION
                         targets = -1 * np.ones((rnnBatch, batchSize, nOuts))
                         targetNote = -1 * np.ones((rnnBatch, batchSize, binsPerOctave, timeDepth))
@@ -206,8 +203,6 @@ class DataSet(object):
                         j = glob.glob(os.path.join(self.targetPath, '{}_mel2_target.npy'.format(track)))
                         if i and j:
                             curInput = np.load(i[0])
-                            # idx = np.array(np.arange(0,curInput.shape[-1],44100/Fs), dtype='int32')
-                            # curInput = curInput[:,:,idx]
                             curTarget = np.load(j[0])
                             if curInput.shape[-1] != curTarget.shape[-1]:
                                 lim = np.min((curInput.shape[-1], curTarget.shape[-1]))
@@ -223,36 +218,23 @@ class DataSet(object):
                                             temp = curInput[:,:,offset+kk:offset+kk+timeDepth]
                                         inputs[k,kk] = temp.transpose(1,2,0)
                                     tar = curTarget[:,offset:offset+batchSize].transpose(1,0)
-                                if voicing:
-                                    if len(tar.shape)<2:
-                                        targets[k,:] = computeVoicing(tar)
-                                    else:
-                                        targets[k,:] = -1 * np.ones((batchSize, tar.shape[1]+1))
-                                        for m in range(tar.shape[0]):
-                                            targets[k,m] = computeVoicing(tar[m, :])
-                                else:
-                                    targets[k,:] = tar
-                            elif "BASELINE" in targetDim or "2D" in targetDim:
+                            elif "BASELINE" in targetDim or "2D" in targetDim or "MULTILABEL" in targetDim:
                                 if offset+batchSize < curTarget.shape[-1]:
                                     temp = curInput[:,:,offset:offset+batchSize]
                                     temp = temp.transpose(1, 2, 0)[None,:,:,:]
-                                    if "BASELINE" in targetDim:
+                                    if "BASELINE" in targetDim or "MULTILABEL" in targetDim:
                                         temp = self.deepModel.predict(temp)
                                     inputs[k,:,:] = temp[0,:,:].transpose(1,0)
                                     tar = curTarget[:,offset:offset+batchSize].transpose(1,0)
-                                    if voicing:
-                                        if len(tar.shape)<2:
-                                            targets[k,:,:] = computeVoicing(tar)
-                                        else:
-                                            targets[k,:,:] = -1 * np.ones((batchSize, tar.shape[1]+1))
-                                            for m in range(tar.shape[0]):
-                                                targets[k,m] = computeVoicing(tar[m, :])
-                                    else:
-                                        targets[k,:,:] = tar
+                            elif "RNN" in targetDim:
+                                if offset+batchSize < curTarget.shape[-1]:
+                                    inputs[k,:,:] = curInput[0,:,offset:offset+batchSize].transpose(1,0)
+                                    tar = curTarget[:,offset:offset+batchSize].transpose(1,0)
+                            targets[k,:,:] = tar
                     offset += batchSize
                     if "MULTILABEL" in targetDim:
-                        targetNote, targetOctave = splitTarget(targets, nOctave, binsPerOctave)
-                        yield inputs, {'note':targetNote, 'octave':targetOctave}
+                        targetNote, targetOctave, voicingArray = splitTarget(targets, nOctave, binsPerOctave, voicing)
+                        yield inputs, [targetNote, targetOctave]
                     else:
                         yield inputs, targets
 
@@ -281,20 +263,26 @@ class DataSet(object):
 
                     yield inputs, labels
 
-def splitTarget(labels, nOctave, binsPerOctave):
+def splitTarget(labels, nOctave, binsPerOctave, voicing):
 
     shape = labels.shape
     note = np.zeros((shape[0], shape[1], binsPerOctave))
     octave = np.zeros((shape[0], shape[1], nOctave))
+    voicingArray = np.zeros((shape[0], shape[1], 1))
     for b in range(shape[0]):
         for f in range(shape[1]):
-            if labels[b,f,:].nonzero()[0].any():
-                curOctave = np.floor(labels[b,f,:].nonzero()[0]/(binsPerOctave))
-                curNote = np.floor(labels[b,f,:].nonzero()[0]%binsPerOctave)
+            if labels[b,f,:].nonzero()[0].any() and not any(labels[b,f,:]==-1):
+                if not voicing:
+                    index = (labels[b,f,:].nonzero()[0])
+                else:
+                    index = labels[b,f,:].nonzero()[0] - 1
+                curOctave = int(np.floor(index/(binsPerOctave)))
+                curNote = int(np.floor(index%binsPerOctave))
                 octave[b,f,curOctave] = 1
                 note[b,f,curNote] = 1
+                voicingArray[b,f,:] = 1
 
-    return note, octave
+    return note, octave, voicingArray
 
 def mergeTarget(note, octave):
     shape = note.shape
@@ -308,7 +296,7 @@ def mergeTarget(note, octave):
                 curOctave = octave[b,f,:].nonzero()[0]
                 target[b,f,:] = octave*note
 
-def getLabels(dataobj, dataset, params, modelDim, voicing, fftSize, rnnBatch):
+def getDeepSaliencePredictions(dataobj, dataset, params, modelDim, fftSize, rnnBatch):
     log('Getting labels and inputs for plotting and score calculation')
     batchSize = int(params['batchSize'])
     timeDepth = int(params['timeDepth'])
@@ -316,69 +304,27 @@ def getLabels(dataobj, dataset, params, modelDim, voicing, fftSize, rnnBatch):
     hopSize = int(params['hopSize'])
     stateFull = True if params['stateFull']=="True" else False
     trackList = []
+    preds = []
     bucketList = dataobj.bucketDataset(dataset, rnnBatch)
-    labels = [None] * len(dataset)
-    inputs = [None] * len(dataset)
     for (s, subTracks) in enumerate(bucketList):
         for (k, track) in enumerate(sorted(subTracks[0])):
             trackList.append(track)
-    for (s, subTracks) in enumerate(bucketList):
-        longest, _ = dataobj.findLongest(subTracks[0])
-        nSequences = int(np.floor(longest/batchSize))
-        if voicing: # get size of longest track and set it as number of nBatches
-            nOuts = fftSize+1
-        else:
-            nOuts = fftSize
-        offset = 0
-        for b in range(nSequences): # Iterate over total number of batches and fill them up 1-b-1
-            if "BASELINE" in modelDim:
-                inp = -1 * np.ones((rnnBatch, batchSize, fftSize))
-            else:
-                inp = -1 * np.ones((rnnBatch, batchSize, fftSize, timeDepth, nHarmonics))
-            if "1D" in modelDim or "SOFTMAX" in modelDim or "BASELINE" in modelDim:
-                targets = -1 * np.ones((rnnBatch, batchSize, nOuts))
-            elif "2D" in modelDim:
-                targets = -1 * np.ones((rnnBatch, batchSize, nOuts, timeDepth))
-            elif "MULTILABEL" in modelDim: ### USING SEPARATE LABEL FOR PITCH AND OCTAVE DETECTION
-                targets = -1 * np.ones((rnnBatch, batchSize, nOuts))
-                targetNote = -1 * np.ones((rnnBatch, batchSize, binsPerOctave, timeDepth))
-                targetOctave = -1 * np.ones((rnnBatch, batchSize, nOctave, timeDepth))
-            for (k, track) in enumerate(sorted(subTracks[0])):
-                i = glob.glob(os.path.join(dataobj.inputPath, '{}_mel2_input.npy'.format(track)))
-                j = glob.glob(os.path.join(dataobj.targetPath, '{}_mel2_target.npy'.format(track)))
-                curInput = np.load(i[0])
-                curTarget = np.load(j[0])
-                if curInput.shape[-1] != curTarget.shape[-1]:
-                    lim = np.min((curInput.shape[-1], curTarget.shape[-1]))
-                    curInput = curInput[:,:,:lim]
-                    curTarget = curTarget[:,:lim]
-                if i and j:
-                    if offset+batchSize < curTarget.shape[-1]:
-                        temp = curInput[:,:,offset:offset+batchSize]
-                        temp = temp.transpose(1, 2, 0)[None,:,:,:]
-                        if "BASELINE" in modelDim:
-                            temp = dataobj.deepModel.predict(temp)
-                        inp[k,:,:] = temp[0,:,:].transpose(1,0)
-                        tar = curTarget[:,offset:offset+batchSize].transpose(1,0)
-                        if voicing:
-                            if len(tar.shape)<2:
-                                targets[k,:,:] = computeVoicing(tar)
-                            else:
-                                targets[k,:,:] = -1 * np.ones((batchSize, tar.shape[1]+1))
-                                for m in range(tar.shape[0]):
-                                    targets[k,m] = computeVoicing(tar[m, :])
-                        else:
-                            targets[k,:,:] = tar
-                        if labels[s*rnnBatch+k] is None:
-                            labels[s*rnnBatch+k] = targets[k,:,:]
-                            inputs[s*rnnBatch+k] = inp[k,:,:]
-                        else:
-                            labels[s*rnnBatch+k] = np.concatenate((labels[s*rnnBatch+k], targets[k,:,:]), 0)
-                            inputs[s*rnnBatch+k] = np.concatenate((inputs[s*rnnBatch+k], inp[k,:,:]), 0)
-            offset += batchSize
-    return labels, inputs, trackList
+    for track in trackList:
+        print("Predicting on :", track)
+        i = glob.glob(os.path.join(dataobj.inputPath, '{}_mel2_input.npy'.format(track)))
+        curInput = np.load(i[0])
+        input_hcqt = curInput.transpose(1, 2, 0)[np.newaxis, :, :, :]
+        n_t = input_hcqt.shape[2]
+        n_slices = 200
+        t_slices = list(np.arange(0, n_t, n_slices))
+        output_list = []
+        for i, t in enumerate(t_slices):
+            prediction = dataobj.deepModel.predict(input_hcqt[:, :, t:t+n_slices, :])
+            output_list.append(prediction[0, :, :])
+        preds.append(np.hstack(output_list))
+    return preds, trackList
 
-def getLabelMatrix(myModel, dataobj, dataset, params, modelDim, voicing, fftSize, rnnBatch):
+def getLabelMatrix(myModel, dataobj, dataset, params, modelDim, fftSize, rnnBatch):
     batchSize = int(params['batchSize'])
     timeDepth = int(params['timeDepth'])
     nHarmonics = int(params['nHarmonics'])
@@ -386,73 +332,88 @@ def getLabelMatrix(myModel, dataobj, dataset, params, modelDim, voicing, fftSize
     binsPerOctave = int(params['binsPerOctave'])
     nOctave = int(params['nOctave'])
     stateFull = True if params['stateFull']=="True" else False
-    gen = dataobj.formatDataset(myModel, dataset, int(timeDepth), modelDim, batchSize, hopSize, fftSize, nHarmonics, binsPerOctave, nOctave, voicing, rnnBatch, stateFull)
+    gen = dataobj.formatDataset(myModel, dataset, int(timeDepth), modelDim, batchSize, hopSize, fftSize, nHarmonics, binsPerOctave, nOctave, rnnBatch, stateFull)
     nSamples, size, length = dataobj.sizeDataset(dataset, batchSize, rnnBatch)
     trackList = []
     bucketList = dataobj.bucketDataset(dataset, rnnBatch)
     for (s, subTracks) in enumerate(bucketList):
-        print(s)
         for (k, track) in enumerate(sorted(subTracks[0])):
-            print(track)
             trackList.append(track)
     if nSamples != 0:
-        labels = None
+        if "MULTILABEL" in modelDim:
+            labelNote = None
+            labelOctave = None
+        else:
+            labels = None
         inputs = None
-        print("Size:", size)
         for l in range(size):
             one, two = gen.__next__()
-            print(l)
-            if labels is None:
-                labels = two
-                inputs = one
+            if "MULTILABEL" in modelDim:
+                if labelNote is None:
+                    labelNote = two[0]
+                    labelOctave = two[1]
+                    inputs = one
+                else:
+                    labelNote = np.concatenate((labelNote, two[0]))
+                    labelOctave = np.concatenate((labelOctave, two[1]))
+                    inputs = np.concatenate((inputs, one))
             else:
-                inputs = np.concatenate((inputs, one))
-                labels = np.concatenate((labels, two))
-    return labels, inputs, trackList
+                if labels is None:
+                    labels = two
+                    if not "1D" in modelDim:
+                        inputs = one
+                else:
+                    labels = np.concatenate((labels, two))
+                    if not "1D" in modelDim:
+                        inputs = np.concatenate((inputs, one))
+    if "MULTILABEL" in modelDim:
+        return labelNote, labelOctave, inputs, trackList
+    else:
+        return labels, inputs, trackList
 
 def createAnnotation(freq_grid, time_grid, annotation_times,
                              annotation_freqs):
-    """Create the binary annotation target labels
+    """ Create the binary annotation target labels from the frequency Annotations
+    --- The target vector, of size 72, is built so that it covers a range of frequencies from 0Hz (non-melody) to 1864Hz
     """
-
     n_freqs = len(freq_grid)
     n_times = len(time_grid)
     idx = np.array(np.arange(0, len(annotation_times), 44100/Fs), dtype='int32')
     annotation_times = annotation_times[idx]
     annotation_freqs = annotation_freqs[idx]
 
-    # time_bins = grid_to_bins(time_grid, 0.0, time_grid[-1])
-    time_bins = time_grid
+    time_bins = grid_to_bins(time_grid, 0.0, time_grid[-1])
     freq_bins = grid_to_bins(freq_grid, 0.0, freq_grid[-1])
-    annot_time_idx = np.digitize(annotation_times, time_bins) - 1
-    annot_freq_idx = np.digitize(annotation_freqs, freq_bins) - 1
-
-    annotation_target = np.zeros((n_freqs+1, n_times))
+    annot_time_idx = np.digitize(annotation_times, time_grid) - 1
+    annot_freq_idx = np.digitize(annotation_freqs, freq_grid)
+    annotation_target = np.zeros((NCLASSES, n_times))
     annotation_target[annot_freq_idx, annot_time_idx] = 1
 
-    return annotation_target[1:,:]
+    return annotation_target
 
 def computeVoicing(activations):
 
     # import pdb; pdb.set_trace()
     if len(activations.shape)==1:
-        ind = np.where((activations==0),0,0)
-        voicingArray = activations
+        ind = np.where(activations)[0]
+        voicingArray = np.zeros_like(activations)
         voicingArray = np.insert(voicingArray, -1, 0)
         if not any(activations):
-            voicingArray[ind] = 1
+            voicingArray[0] = 1
+        else:
+            voicingArray[ind+1] = 1
     else:
         for k in range(activations.shape[0]):
-            ind = np.where((activations[k,:]==0),0,0)
+            # ind = np.where((activations[k,:]==0),0,0)
             voicingArray = activations
             voicingArray = np.insert(voicingArray, -1, 0)
             if not any(activations[k,:]):
-                voicingArray[ind] = 1
+                voicingArray[0] = 1
 
     return voicingArray
 
 ### ---------------- COMPUTE HCQT FEATURES ---------------- ###
-def computeHcqt(audio_fpath, nHarmonics, binsPerOctave, nOctave):
+def computeHcqt(audio_fpath, nHarmonics, binsPerOctave, n_bins):
 
     y, fs = librosa.load(audio_fpath, sr=Fs)
     cqt_list = []
@@ -461,7 +422,7 @@ def computeHcqt(audio_fpath, nHarmonics, binsPerOctave, nOctave):
     for h in harmonics:
         cqt = librosa.cqt(
             y, sr=Fs, hop_length=HOP_LENGTH, fmin=FMIN*float(h),
-            n_bins=binsPerOctave*nOctave,
+            n_bins=n_bins,
             bins_per_octave=binsPerOctave
         )
         cqt_list.append(cqt)
